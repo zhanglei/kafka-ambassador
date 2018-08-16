@@ -1,0 +1,13 @@
+server:
+  http:
+    listen: "0.0.0.0:8080"
+  #grpc:
+  #  listen: "0.0.0.0:8282"
+kafka:
+    brokers:
+        - "127.0.0.1:9092"
+    # possible configuration parameters are:
+    # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+    "compression.codec": "gzip"
+    "batch.num.messages": 100000
+    "max.in.flight.requests.per.connection": 20
