@@ -1,8 +1,8 @@
 server:
   http:
-    listen: "0.0.0.0:8080"
-  #grpc:
-  #  listen: "0.0.0.0:8282"
+    listen: "0.0.0.0:18080"
+  grpc:
+    listen: "0.0.0.0:18282"
 kafka:
     brokers:
         - "127.0.0.1:9092"

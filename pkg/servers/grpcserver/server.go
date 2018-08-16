@@ -19,8 +19,8 @@ func (s *Server) Start(configPath string) {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	grpcSrv := grpc.NewServer(grpc.MaxMsgSize(c.GetInt("max.request.size")))
-	pb.RegisterKafkaAmbassadorServer(grpcSrv, &Server{})
+	grpcSrv := grpc.NewServer(grpc.MaxMsgSize(s.Config.GetInt(configPath + ".max.request.size")))
+	pb.RegisterKafkaAmbassadorServer(grpcSrv, s)
 
 	log.Printf("Listening for GRPC requests on %s...\n", addr)
 
