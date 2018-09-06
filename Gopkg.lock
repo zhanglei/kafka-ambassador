@@ -38,6 +38,26 @@
   version = "v1.1.0"
 
 [[projects]]
+<<<<<<< HEAD
+=======
+  branch = "master"
+  name = "github.com/golang/snappy"
+  packages = ["."]
+  revision = "2e65f85255dbc3072edf28d6b5b8efc472979f5a"
+
+[[projects]]
+  name = "github.com/google/go-cmp"
+  packages = [
+    "cmp",
+    "cmp/internal/diff",
+    "cmp/internal/function",
+    "cmp/internal/value"
+  ]
+  revision = "3af367b6b30c263d47e8895973edcca9a49cf029"
+  version = "v0.2.0"
+
+[[projects]]
+>>>>>>> a83a771... WAL initial
   name = "github.com/gorilla/context"
   packages = ["."]
   revision = "08b5f424b9271eedf6f9f0ce86cb9396ed337a42"
@@ -139,6 +159,21 @@
   revision = "05ee40e3a273f7245e8777337fc7b46e533a9a92"
 
 [[projects]]
+<<<<<<< HEAD
+=======
+  name = "github.com/rs/xid"
+  packages = ["."]
+  revision = "2c7e97ce663ff82c49656bca3048df0fdd83c5f9"
+  version = "v1.2.0"
+
+[[projects]]
+  name = "github.com/sony/gobreaker"
+  packages = ["."]
+  revision = "b2a34562d02c4d5fd6645399c69e00141fb24e5a"
+  version = "0.4.0"
+
+[[projects]]
+>>>>>>> a83a771... WAL initial
   name = "github.com/spf13/afero"
   packages = [
     ".",
@@ -172,6 +207,34 @@
   version = "v1.1.0"
 
 [[projects]]
+<<<<<<< HEAD
+=======
+  name = "github.com/stretchr/testify"
+  packages = ["assert"]
+  revision = "f35b8ab0b5a2cef36673838d662e249dd9c94686"
+  version = "v1.2.2"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/syndtr/goleveldb"
+  packages = [
+    "leveldb",
+    "leveldb/cache",
+    "leveldb/comparer",
+    "leveldb/errors",
+    "leveldb/filter",
+    "leveldb/iterator",
+    "leveldb/journal",
+    "leveldb/memdb",
+    "leveldb/opt",
+    "leveldb/storage",
+    "leveldb/table",
+    "leveldb/util"
+  ]
+  revision = "ae2bd5eed72d46b28834ec3f60db3a3ebedd8dbd"
+
+[[projects]]
+>>>>>>> a83a771... WAL initial
   name = "go.uber.org/atomic"
   packages = ["."]
   revision = "1ea20fb1cbb1cc08cbd0d913a96dead89aa18289"
@@ -182,6 +245,15 @@
   packages = ["."]
   revision = "3c4937480c32f4c13a875a1829af76c98ca3d40a"
   version = "v1.1.0"
+
+[[projects]]
+  branch = "master"
+  name = "go.uber.org/ratelimit"
+  packages = [
+    ".",
+    "internal/clock"
+  ]
+  revision = "c15da02342779cb6dc027fc95ee2277787698f36"
 
 [[projects]]
   name = "go.uber.org/zap"
@@ -285,6 +357,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "13e714ef9148ed71d2dc4b6540f4d1ecf86112127f5aec25dc83c790a9e9d336"
+  inputs-digest = "3f07c4e18f63a1497738e4babaf1a08ee3558f6bcc0a26eebc7670865edab57c"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -52,7 +52,7 @@ func (s *Server) messageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.Producer.Send(&topic, msg)
+	s.Producer.Send(topic, msg)
 }
 
 func readMsg(r *http.Request) ([]byte, error) {
