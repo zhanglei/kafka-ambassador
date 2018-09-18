@@ -4,8 +4,8 @@ import (
 	"io"
 	"net"
 
+	pb "github.com/anchorfree/data-go/pkg/ambassador/pb"
 	"github.com/anchorfree/kafka-ambassador/pkg/server"
-	pb "github.com/anchorfree/kafka-ambassador/pkg/servers/grpcserver/pb"
 	"google.golang.org/grpc"
 )
 
