@@ -65,11 +65,12 @@ func (w *Wal) Close() {
 }
 
 func (w *Wal) SetRecord(topic string, value []byte) error {
-	r := new(pb.Record)
-	r.Timestamp = ptypes.TimestampNow()
-	r.Crc = CrcSum(value)
-	r.Payload = value
-	r.Topic = topic
+	r := pb.Record{
+		Timestamp: ptypes.TimestampNow(),
+		Crc:       CrcSum(value),
+		Payload:   value,
+		Topic:     topic,
+	}
 
 	key := Uint32ToBytes(r.Crc)
 	b, err := ToBytes(r)
@@ -142,13 +143,12 @@ func isWritable(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	defer os.Remove(tmpfile.Name()) // clean up
 	if _, err := tmpfile.Write(content); err != nil {
 		return false, err
 	}
 	if err := tmpfile.Close(); err != nil {
 		return false, err
 	}
-	// this must be after all exception handling
-	defer os.Remove(tmpfile.Name()) // clean up
 	return true, nil
 }

@@ -32,8 +32,8 @@ func FromBytes(data []byte) (*pb.Record, error) {
 }
 
 // ToBytes parses record from []bytes
-func ToBytes(m *pb.Record) ([]byte, error) {
-	return proto.Marshal(m)
+func ToBytes(m pb.Record) ([]byte, error) {
+	return proto.Marshal(&m)
 }
 
 func GetTime(m *pb.Record) (time.Time, error) {

@@ -162,23 +162,23 @@ func (p *T) producerEventsHander() {
 }
 func (p *T) isAlwaysWal(topic string) bool {
 	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 	for i, _ := range p.Config.AlwaysWalTopics {
 		if p.Config.AlwaysWalTopics[i] == topic {
 			return true
 		}
 	}
-	defer p.mutex.RUnlock()
 	return false
 }
 
 func (p *T) isDisableWal(topic string) bool {
 	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 	for i, _ := range p.Config.DisableWalTopics {
 		if p.Config.DisableWalTopics[i] == topic {
 			return true
 		}
 	}
-	defer p.mutex.RUnlock()
 	return false
 }
 
