@@ -62,7 +62,7 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 			return nil
 		}
 
-		s.Producer.Send(&req.Topic, req.Message)
+		s.Producer.Send(req.Topic, req.Message)
 		res = &pb.ProdRs{StreamOffset: req.StreamOffset}
 		err = stream.Send(res)
 		if err != nil {

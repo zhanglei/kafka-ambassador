@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 
+	producer "github.com/anchorfree/kafka-ambassador/pkg/kafka"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/spf13/viper"
 )
@@ -30,6 +31,26 @@ func (c *T) ReadConfig(defaults map[string]interface{}) (*viper.Viper, error) {
 
 	err := v.ReadInConfig()
 	return v, err
+}
+
+func ProducerConfig(c *viper.Viper) *producer.Config {
+	p := new(producer.Config)
+	p.ResendPeriod = c.GetDuration("producer.resend.period")
+	p.ResendRateLimit = c.GetInt("producer.resend.rate_limit")
+	p.AlwaysWalTopics = c.GetStringSlice("producer.wal.always_topics")
+	p.DisableWalTopics = c.GetStringSlice("producer.wal.disable_topics")
+	p.WalDirectory = c.GetString("producer.wal.path")
+	switch mode := c.GetString("producer.wal.mode"); mode {
+	case "fallback":
+		p.WalMode = producer.Fallback
+	case "always":
+		p.WalMode = producer.Always
+	case "disable":
+		p.WalMode = producer.Disable
+	default:
+		p.WalMode = producer.Fallback
+	}
+	return p
 }
 
 func KafkaParams(c *viper.Viper) (kafka.ConfigMap, error) {

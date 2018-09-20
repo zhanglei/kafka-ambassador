@@ -12,14 +12,19 @@ import (
 
 var (
 	defaults map[string]interface{} = map[string]interface{}{
-		"global.log.level":                            "info",
-		"global.log.encoding":                         "json",
-		"global.log.outputPaths":                      ("stdout"),
-		"global.log.errorOutputPaths":                 ("stderr"),
-		"global.log.encoderConfig":                    logger.NewEncoderConfig(),
-		"server.http.listen":                          ":19092",
+		"global.log.level":            "info",
+		"global.log.encoding":         "json",
+		"global.log.outputPaths":      ("stdout"),
+		"global.log.errorOutputPaths": ("stderr"),
+		"global.log.encoderConfig":    logger.NewEncoderConfig(),
+		"server.http.listen":          ":19092",
+		// Please take a look at:
+		// https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+		// for more configuration parameters
 		"kafka.compression.codec":                     "gzip",
 		"kafka.batch.num.messages":                    100000,
+		"kafka.socket.timeout.ms":                     10000, // mark connection as stalled
+		"kafka.message.timeout.ms":                    60000, // try to deliver message with retries
 		"kafka.max.in.flight.requests.per.connection": 20,
 		"server.grpc.max.request.size":                4 * 1024 * 1024,
 		"server.grpc.monitoring.histogram.enable":     true,
@@ -59,6 +64,7 @@ func main() {
 		return
 	}
 	s.Producer.Logger = s.Logger
+	s.Producer.Config = config.ProducerConfig(s.Config)
 	s.Producer.Init(&kafkaParams, s.Prometheus)
 	s.Start()
 }

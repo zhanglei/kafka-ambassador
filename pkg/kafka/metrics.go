@@ -26,10 +26,25 @@ var (
 		},
 		[]string{"topic", "error"},
 	)
+	cbState = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "producer_cb_state",
+			Help: "Circuit Breaker state of Kafka",
+		},
+		[]string{"name", "state"},
+	)
+	cbCurrentState = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_cb_current_state",
+			Help: "Circuit Breaker current state of Kafka",
+		},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {
 	prom.MustRegister(msgSent)
 	prom.MustRegister(msgOK)
 	prom.MustRegister(msgNOK)
+	prom.MustRegister(cbState)
+	prom.MustRegister(cbCurrentState)
 }

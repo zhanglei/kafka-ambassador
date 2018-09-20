@@ -6,6 +6,17 @@ server:
     listen: "0.0.0.0:18282"
   monitoring:
     listen: "0.0.0.0:28080"
+producer:
+  resend:
+    period: 1m
+    rate_limit: 1
+  wal:
+    mode: "fallback"
+    path: /tmp/wal
+    skip_topics:
+    - test1
+    force_topics:
+    - test
 kafka:
     brokers:
         - "127.0.0.1:9092"
@@ -14,3 +25,5 @@ kafka:
     "compression.codec": "gzip"
     "batch.num.messages": 100000
     "max.in.flight.requests.per.connection": 20
+    "message.timeout.ms": 60000
+    "socket.timeout.ms": 10000
