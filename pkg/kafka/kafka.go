@@ -6,7 +6,6 @@ import (
 
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/wal"
-	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sony/gobreaker"
@@ -83,7 +82,7 @@ func (p *T) ReSend() {
 			p.Logger.Info("Running resend, as CB is not tripped")
 			now := time.Now().Unix()
 			for r := range p.wal.Iterate() {
-				rtime, err := r.GetTime()
+				rtime, err := wal.GetTime(r)
 				if err != nil {
 					rtime = time.Now()
 				}
@@ -147,7 +146,7 @@ func (p *T) producerEventsHander() {
 				success(false)
 			} else {
 				msgOK.With(prometheus.Labels{"topic": *m.TopicPartition.Topic}).Inc()
-				crc := pb.Uint32ToBytes(uint32(pb.CrcSum(m.Value)))
+				crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
 				p.Logger.Debugf("removing CRC: %s", string(crc))
 				p.wal.Del(crc)
 				if err != nil {
@@ -186,11 +185,11 @@ func (p *T) isDisableWal(topic string) bool {
 func (p *T) setCBState(name string, from, to gobreaker.State) {
 	switch to {
 	case gobreaker.StateClosed:
-		cbState.With(prometheus.Labels{"name": name, "state": "closed"}).Add(1)
+		cbState.With(prometheus.Labels{"name": name, "state": "closed"}).Inc()
 	case gobreaker.StateHalfOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "half"}).Add(1)
+		cbState.With(prometheus.Labels{"name": name, "state": "half"}).Inc()
 	case gobreaker.StateOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "open"}).Add(1)
+		cbState.With(prometheus.Labels{"name": name, "state": "open"}).Inc()
 	}
 }
 

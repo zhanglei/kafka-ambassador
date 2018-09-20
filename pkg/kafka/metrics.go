@@ -26,8 +26,8 @@ var (
 		},
 		[]string{"topic", "error"},
 	)
-	cbState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
+	cbState = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
 			Name: "producer_cb_state",
 			Help: "Circuit Breaker state of Kafka",
 		},

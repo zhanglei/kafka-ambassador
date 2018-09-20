@@ -1,8 +1,12 @@
 package wal
 
 import (
+	"io/ioutil"
+	"os"
+
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/errors"
@@ -29,6 +33,10 @@ func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, err
 	var s storage.Storage
 	var err error
 	if dir != "" {
+		ok, err := isWritable(dir)
+		if !ok {
+			logger.Fatalf("The WAL folder does not work due to: %s", err)
+		}
 		s, err = storage.OpenFile(dir, false)
 		if err != nil {
 			return nil, err
@@ -58,12 +66,13 @@ func (w *Wal) Close() {
 
 func (w *Wal) SetRecord(topic string, value []byte) error {
 	r := new(pb.Record)
-	// set current timestamp
-	r.Now()
-	r.SetPayload(value)
-	key := pb.Uint32ToBytes(r.Crc)
+	r.Timestamp = ptypes.TimestampNow()
+	r.Crc = CrcSum(value)
+	r.Payload = value
 	r.Topic = topic
-	b, err := r.ToBytes()
+
+	key := Uint32ToBytes(r.Crc)
+	b, err := ToBytes(r)
 	if err != nil {
 		return err
 	}
@@ -76,7 +85,6 @@ func (w *Wal) Set(key, payload []byte) error {
 }
 
 func (w *Wal) Get(key []byte) (*pb.Record, error) {
-	r := new(pb.Record)
 	b, err := w.storage.Get(key, nil)
 	if err != nil {
 		if err == errors.ErrNotFound {
@@ -85,7 +93,7 @@ func (w *Wal) Get(key []byte) (*pb.Record, error) {
 		return nil, err
 	}
 
-	err = r.FromBytes(b)
+	r, err := FromBytes(b)
 	if err != nil {
 		return nil, err
 	}
@@ -108,14 +116,13 @@ func (w *Wal) CompactAll() error {
 }
 
 func (w *Wal) Iterate() chan *pb.Record {
-	r := new(pb.Record)
 	c := make(chan *pb.Record)
 	iter := w.storage.NewIterator(nil, nil)
 
 	go func() {
 		for iter.Next() {
 			key := iter.Key()
-			err := r.FromBytes(iter.Value())
+			r, err := FromBytes(iter.Value())
 			if err != nil {
 				w.logger.Warnf("Could not read from record due to error %s", err)
 				w.Del(key)
@@ -127,4 +134,21 @@ func (w *Wal) Iterate() chan *pb.Record {
 		close(c)
 	}()
 	return c
+}
+
+func isWritable(path string) (bool, error) {
+	content := []byte("temporary file's content")
+	tmpfile, err := ioutil.TempFile(path, "wal-test")
+	if err != nil {
+		return false, err
+	}
+	if _, err := tmpfile.Write(content); err != nil {
+		return false, err
+	}
+	if err := tmpfile.Close(); err != nil {
+		return false, err
+	}
+	// this must be after all exception handling
+	defer os.Remove(tmpfile.Name()) // clean up
+	return true, nil
 }

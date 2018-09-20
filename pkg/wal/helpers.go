@@ -1,10 +1,11 @@
-package pb
+package wal
 
 import (
 	"encoding/binary"
 	"hash/crc32"
 	"time"
 
+	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 )
@@ -23,27 +24,18 @@ func Uint32ToBytes(crc uint32) []byte {
 	return b
 }
 
-// SetPayload sets bytes payload, and calculates it's CRC
-func (m *Record) SetPayload(bytes []byte) {
-	m.Payload = bytes
-	m.Crc = CrcSum(bytes)
-}
-
 // FromBytes parses record from []bytes
-func (m *Record) FromBytes(data []byte) error {
-	return proto.Unmarshal(data, m)
+func FromBytes(data []byte) (*pb.Record, error) {
+	r := new(pb.Record)
+	err := proto.Unmarshal(data, r)
+	return r, err
 }
 
 // ToBytes parses record from []bytes
-func (m *Record) ToBytes() ([]byte, error) {
+func ToBytes(m *pb.Record) ([]byte, error) {
 	return proto.Marshal(m)
 }
 
-// Now sets record timestmap to current timestamp
-func (m *Record) Now() {
-	m.Timestamp = ptypes.TimestampNow()
-}
-
-func (m *Record) GetTime() (time.Time, error) {
+func GetTime(m *pb.Record) (time.Time, error) {
 	return ptypes.Timestamp(m.Timestamp)
 }
