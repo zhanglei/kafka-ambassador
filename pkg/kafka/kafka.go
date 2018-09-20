@@ -13,11 +13,17 @@ import (
 )
 
 type Mode int
+type Source int
 
 const (
 	Fallback Mode = iota
 	Always
 	Disable
+)
+
+const (
+	FromWAL Source = iota
+	Direct
 )
 
 type T struct {
@@ -89,7 +95,7 @@ func (p *T) ReSend() {
 				if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
 					if p.cb.State() != gobreaker.StateOpen {
 						p.rl.Take()
-						p.produce(r.Topic, r.Payload)
+						p.produce(r.Topic, r.Payload, FromWAL)
 					}
 				}
 			}
@@ -105,7 +111,7 @@ func (p *T) ReSend() {
 
 func (p *T) Send(topic string, message []byte) {
 	if p.cb.State() != gobreaker.StateOpen {
-		p.produce(topic, message)
+		p.produce(topic, message, Direct)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
@@ -117,13 +123,15 @@ func (p *T) Send(topic string, message []byte) {
 	}
 }
 
-func (p *T) produce(topic string, message []byte) {
+func (p *T) produce(topic string, message []byte, opaque interface{}) {
 	p.Logger.Debugf("Sending to topic: [%s] message %s", topic, string(message))
 	p.Producer.ProduceChannel() <- &kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
-			Partition: kafka.PartitionAny},
-		Value: message,
+			Partition: kafka.PartitionAny,
+		},
+		Value:  message,
+		Opaque: opaque,
 	}
 }
 
@@ -146,9 +154,11 @@ func (p *T) producerEventsHander() {
 				success(false)
 			} else {
 				msgOK.With(prometheus.Labels{"topic": *m.TopicPartition.Topic}).Inc()
-				crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
-				p.Logger.Debugf("removing CRC: %s", string(crc))
-				p.wal.Del(crc)
+				if m.Opaque == FromWAL || p.isAlwaysWal(*m.TopicPartition.Topic) {
+					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					p.Logger.Debugf("removing CRC: %s", string(crc))
+					p.wal.Del(crc)
+				}
 				if err != nil {
 					// We are not allowed to do anything
 					break
