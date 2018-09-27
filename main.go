@@ -2,7 +2,11 @@ package main
 
 import (
 	"flag"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/config"
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
@@ -38,6 +42,10 @@ func main() {
 	flag.StringVar(&configPathName, "config", "", "Configuration file to load")
 	flag.Parse()
 
+	// We need to shut down gracefully when the user hits Ctrl-C.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGTERM)
+
 	s := new(servers.T)
 	s.Wg = new(sync.WaitGroup)
 	c := &config.T{
@@ -67,4 +75,19 @@ func main() {
 	s.Producer.Config = config.ProducerConfig(s.Config)
 	s.Producer.Init(&kafkaParams, s.Prometheus)
 	s.Start()
+	signal := <-sig
+	switch signal {
+	case syscall.SIGTERM, syscall.SIGINT:
+		s.Stop()
+		for {
+			if !s.Producer.QueueIsEmpty() {
+				s.Logger.Info("We still have messages in queue, waiting")
+				time.Sleep(5 * time.Second)
+			} else {
+				s.Logger.Info("Queue is empty, shut down properly")
+				s.Producer.Producer.Close()
+				break
+			}
+		}
+	}
 }

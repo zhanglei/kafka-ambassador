@@ -1,7 +1,6 @@
 package monitoring
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/server"
@@ -18,15 +17,11 @@ func (s *Server) Start(configPath string) {
 	}
 
 	// Start your http server for prometheus.
-	go func() {
-		if err := monitServer.ListenAndServe(); err != nil {
-			log.Fatal("Unable to start a http server.")
-		}
-	}()
-
-	s.Wg.Add(1)
+	if err := monitServer.ListenAndServe(); err != nil {
+		s.Logger.Errorf("Unable to start a monitoring http server: %v", err)
+	}
 }
 
-func Stop() {
-
+func (s *Server) Stop() {
+	s.Logger.Info("Stopping monitoring server")
 }

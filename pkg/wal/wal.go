@@ -3,6 +3,7 @@ package wal
 import (
 	"io/ioutil"
 	"os"
+	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
@@ -57,6 +58,7 @@ func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, err
 	}
 
 	registerMetrics(prom)
+	go wal.collectPeriodically(30 * time.Second)
 	return wal, nil
 }
 
@@ -114,6 +116,16 @@ func (w *Wal) CompactAll() error {
 		Limit: nil,
 	}
 	return w.storage.CompactRange(r)
+}
+
+func (w *Wal) setWALMessages() {
+	iter := w.storage.NewIterator(nil, nil)
+	cnt := 0
+	for iter.Next() {
+		cnt++
+	}
+	iter.Release()
+	walMessages.Set(float64(cnt))
 }
 
 func (w *Wal) Iterate() chan *pb.Record {

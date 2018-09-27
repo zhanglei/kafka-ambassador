@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
@@ -35,6 +36,7 @@ type T struct {
 	resendMutex *sync.Mutex
 	cb          *gobreaker.TwoStepCircuitBreaker
 	rl          ratelimit.Limiter
+	transit     *int64
 }
 
 type Config struct {
@@ -65,6 +67,7 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	p.resendMutex = new(sync.Mutex)
 	p.wal, err = wal.New(p.Config.WalDirectory, prom, p.Logger)
 	p.rl = ratelimit.New(p.Config.ResendRateLimit)
+	p.transit = new(int64)
 	if err != nil {
 		p.Logger.Errorf("Could not create kafka producer due to: %v", err)
 		return err
@@ -76,6 +79,7 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	go p.ReSend()
 	// monitor CB state every 10 seconds
 	go p.trackCBState(10 * time.Second)
+	go p.kafkaStats(30 * time.Second)
 	return err
 }
 
@@ -112,6 +116,7 @@ func (p *T) ReSend() {
 func (p *T) Send(topic string, message []byte) {
 	if p.cb.State() != gobreaker.StateOpen {
 		p.produce(topic, message, Direct)
+		atomic.AddInt64(p.transit, 1)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
@@ -133,6 +138,7 @@ func (p *T) produce(topic string, message []byte, opaque interface{}) {
 		Value:  message,
 		Opaque: opaque,
 	}
+	msgInTransit.Add(1)
 }
 
 func (p *T) producerEventsHander() {
@@ -141,12 +147,23 @@ func (p *T) producerEventsHander() {
 		case *kafka.Message:
 			success, err := p.cb.Allow()
 			m := ev
+			atomic.AddInt64(p.transit, -1)
+			msgInTransit.Add(-1)
 			if m.TopicPartition.Error != nil {
 				msgNOK.With(prometheus.Labels{
 					"topic": *m.TopicPartition.Topic,
 					"error": m.TopicPartition.Error.Error()}).Inc()
 				p.Logger.Infof("could not send message to kafka due to: %s", m.TopicPartition.Error.Error())
-				p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
+				// we store messages which can be retried only
+				if canRetry(m.TopicPartition.Error) {
+					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
+				} else {
+					// we could put the message into some malformed topic or similar
+					// but for now we simply keep track of this messages
+					msgDropped.With(prometheus.Labels{
+						"topic": *m.TopicPartition.Topic,
+						"error": m.TopicPartition.Error.Error()}).Inc()
+				}
 				if err != nil {
 					// We are not allowed to do anything
 					break
@@ -166,7 +183,7 @@ func (p *T) producerEventsHander() {
 				success(true)
 			}
 		default:
-			// fmt.Printf("Ignored event: %s\n", ev)
+			eventIgnored.Inc()
 		}
 	}
 }
@@ -216,4 +233,33 @@ func (p *T) trackCBState(period time.Duration) {
 			cbCurrentState.Set(1)
 		}
 	}
+}
+
+func (p *T) kafkaStats(period time.Duration) {
+	ticker := time.NewTicker(p.Config.ResendPeriod)
+
+	for _ = range ticker.C {
+		producerQueueLen.Set(float64(p.Producer.Len()))
+	}
+}
+
+func canRetry(err error) bool {
+	switch e := err.(kafka.Error); e.Code() {
+	// topics are wrong
+	case kafka.ErrTopicException, kafka.ErrUnknownTopic:
+		return false
+	// message is incorrect
+	case kafka.ErrMsgSizeTooLarge, kafka.ErrInvalidMsgSize:
+		return false
+	default:
+		return true
+	}
+}
+
+func (p *T) QueueIsEmpty() bool {
+	p.Logger.Infof("Messages in queue: %d", *p.transit)
+	if *p.transit <= 0 {
+		return true
+	}
+	return false
 }

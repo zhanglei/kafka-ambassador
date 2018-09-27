@@ -1,7 +1,7 @@
 ---
 server:
-  http:
-    listen: "0.0.0.0:18080"
+  # http:
+  #   listen: "0.0.0.0:18080"
   grpc:
     listen: "0.0.0.0:18282"
   monitoring:
@@ -9,14 +9,12 @@ server:
 producer:
   resend:
     period: 1m
-    rate_limit: 1
+    rate_limit: 100
   wal:
     mode: "fallback"
     path: /tmp/wal
     skip_topics:
     - test1
-    force_topics:
-    - test
 kafka:
     brokers:
         - "127.0.0.1:9092"

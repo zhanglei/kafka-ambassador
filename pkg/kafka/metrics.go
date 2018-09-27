@@ -26,6 +26,25 @@ var (
 		},
 		[]string{"topic", "error"},
 	)
+	msgInTransit = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_client_messages_in_transit",
+			Help: "Number of kafka messages in transit",
+		},
+	)
+	msgDropped = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_client_dropped_cnt",
+			Help: "Number of kafka Errored requests which are dropped",
+		},
+		[]string{"topic", "error"},
+	)
+	eventIgnored = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "kafka_client_events_ignored_cnt",
+			Help: "Number of kafka events which are ignored",
+		},
+	)
 	cbState = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "producer_cb_state",
@@ -39,12 +58,23 @@ var (
 			Help: "Circuit Breaker current state of Kafka",
 		},
 	)
+	producerQueueLen = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "producer_kafka_queue_len",
+			Help: "Number of messages and requests waiting to be transmitted to the broker as well as delivery reports queued for the application",
+		},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {
-	prom.MustRegister(msgSent)
-	prom.MustRegister(msgOK)
-	prom.MustRegister(msgNOK)
-	prom.MustRegister(cbState)
-	prom.MustRegister(cbCurrentState)
+	prom.MustRegister(msgSent,
+		msgOK,
+		msgNOK,
+		msgDropped,
+		cbState,
+		cbCurrentState,
+		producerQueueLen,
+		eventIgnored,
+		msgInTransit,
+	)
 }

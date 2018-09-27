@@ -1,10 +1,12 @@
 package httpserver
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/server"
 	"github.com/gorilla/mux"
@@ -36,10 +38,15 @@ func (s *Server) Start(configPath string) {
 	go func() {
 		err := httpServer.ListenAndServe()
 		if err != nil {
-			fmt.Println(err)
+			s.Logger.Errorf("Unable to start http server: %v", err)
 		}
 	}()
+
 	s.Wg.Add(1)
+	s.Logger.Info("Registered HTTP server in servers pool")
+	s.Wg.Wait()
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	httpServer.Shutdown(ctx)
 }
 
 func (s *Server) messageHandler(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +86,7 @@ func readMsg(r *http.Request) ([]byte, error) {
 	return nil, errors.Errorf("unsupported content type %s", contentType)
 }
 
-func Stop() {
-
+func (s *Server) Stop() {
+	s.Logger.Info("Stopping HTTP server")
+	s.Wg.Done()
 }
