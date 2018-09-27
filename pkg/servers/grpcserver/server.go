@@ -52,6 +52,13 @@ func (s *Server) Start(configPath string) {
 		}
 	}()
 	s.Wg.Add(1)
+	s.Logger.Info("Registered GRPC in servers pool")
+	s.Wg.Wait()
+	// GracefulStop stops the gRPC server gracefully.
+	// It stops the server from accepting new connections and RPCs
+	// and blocks until all the pending RPCs are finished.
+	s.Logger.Warn("Initiating graceful stop of GRPC server")
+	grpcSrv.GracefulStop()
 }
 
 func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
@@ -73,5 +80,6 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 }
 
 func (s *Server) Stop() {
-
+	s.Logger.Info("Stopping GRPC server")
+	s.Wg.Done()
 }

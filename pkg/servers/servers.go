@@ -15,7 +15,7 @@ const (
 
 type T struct {
 	server.T
-	Servers []server.T
+	Servers []server.I
 }
 
 func (s *T) Start() {
@@ -27,7 +27,8 @@ func (s *T) Start() {
 			Logger:     s.Logger,
 			Wg:         s.Wg,
 		}
-		monitSrv.Start(monitoringPath)
+		go monitSrv.Start(monitoringPath)
+		s.Servers = append(s.Servers, monitSrv)
 	}
 	if s.Config.IsSet(httpPath + ".listen") {
 		httpSrv := &httpserver.Server{
@@ -37,10 +38,9 @@ func (s *T) Start() {
 			Logger:     s.Logger,
 			Wg:         s.Wg,
 		}
-		httpSrv.Start(httpPath)
-		// append(s.Servers, httpSrv)
+		go httpSrv.Start(httpPath)
+		s.Servers = append(s.Servers, httpSrv)
 	}
-
 	if s.Config.IsSet(grpcPath + ".listen") {
 		grpcSrv := &grpcserver.Server{
 			Producer:   s.Producer,
@@ -49,10 +49,9 @@ func (s *T) Start() {
 			Logger:     s.Logger,
 			Wg:         s.Wg,
 		}
-		grpcSrv.Start(grpcPath)
-		// append(s.Servers, grpcSrv)
+		go grpcSrv.Start(grpcPath)
+		s.Servers = append(s.Servers, grpcSrv)
 	}
-	s.Wg.Wait()
 }
 
 func (s *T) Stop() {

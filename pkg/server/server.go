@@ -12,7 +12,7 @@ import (
 // We need this package to prevent cyclic dependencies
 
 type I interface {
-	Start()
+	Start(string)
 	Stop()
 }
 
