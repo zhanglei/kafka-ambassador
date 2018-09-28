@@ -66,7 +66,11 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
-			return nil
+			break
+		}
+		if err == nil {
+			s.Logger.Errorf("Could not receive stream from client: %v", err)
+			return err
 		}
 
 		s.Producer.Send(req.Topic, req.Message)
