@@ -68,7 +68,7 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 		if err == io.EOF {
 			return nil
 		}
-		if err == nil {
+		if err != nil {
 			s.Logger.Errorf("Could not receive stream from client: %v", err)
 			return err
 		}
