@@ -159,7 +159,9 @@ func (p *T) producerEventsHander() {
 					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
 				} else {
 					// we could put the message into some malformed topic or similar
-					// but for now we simply keep track of this messages
+					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					p.Logger.Infof("Dropped message CRC: %s as we can't retry it due to: %s", string(crc), m.TopicPartition.Error.Error())
+					p.wal.Del(crc)
 					msgDropped.With(prometheus.Labels{
 						"topic": *m.TopicPartition.Topic,
 						"error": m.TopicPartition.Error.Error()}).Inc()
