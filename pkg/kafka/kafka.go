@@ -88,7 +88,7 @@ func (p *T) ReSend() {
 
 	for _ = range ticker.C {
 		p.resendMutex.Lock()
-		if p.cb.State() != gobreaker.StateOpen {
+		if p.cb.State() == gobreaker.StateClosed {
 			p.Logger.Info("Running resend, as CB is not tripped")
 			now := time.Now().Unix()
 			for r := range p.wal.Iterate() {
@@ -97,7 +97,7 @@ func (p *T) ReSend() {
 					rtime = time.Now()
 				}
 				if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
-					if p.cb.State() != gobreaker.StateOpen {
+					if p.cb.State() == gobreaker.StateClosed {
 						p.rl.Take()
 						p.produce(r.Topic, r.Payload, FromWAL)
 					}
@@ -123,7 +123,7 @@ func (p *T) Send(topic string, message []byte) {
 		}
 		msgSent.With(prometheus.Labels{"topic": topic}).Inc()
 	} else {
-		p.Logger.Infof("Storing message to topic: %s into WAL as CB is not ready", topic)
+		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
 		p.wal.SetRecord(topic, message)
 	}
 }
@@ -153,7 +153,7 @@ func (p *T) producerEventsHander() {
 				msgNOK.With(prometheus.Labels{
 					"topic": *m.TopicPartition.Topic,
 					"error": m.TopicPartition.Error.Error()}).Inc()
-				p.Logger.Infof("could not send message to kafka due to: %s", m.TopicPartition.Error.Error())
+				p.Logger.Debugf("could not send message to kafka due to: %s", m.TopicPartition.Error.Error())
 				// we store messages which can be retried only
 				if canRetry(m.TopicPartition.Error) {
 					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
