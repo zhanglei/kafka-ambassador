@@ -89,7 +89,7 @@ func (p *T) ReSend() {
 	for _ = range ticker.C {
 		p.resendMutex.Lock()
 		if p.cb.State() == gobreaker.StateClosed {
-			p.Logger.Info("Running resend, as CB is not tripped")
+			p.Logger.Info("Running resend, as CB is not open")
 			now := time.Now().Unix()
 			for r := range p.wal.Iterate() {
 				rtime, err := wal.GetTime(r)
@@ -107,7 +107,7 @@ func (p *T) ReSend() {
 			p.Logger.Info("Running compaction on the database")
 			p.wal.CompactAll()
 		} else {
-			p.Logger.Info("CB is closed, skipping resend")
+			p.Logger.Info("CB is open, skipping resend")
 		}
 		p.resendMutex.Unlock()
 	}
