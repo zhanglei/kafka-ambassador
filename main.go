@@ -4,7 +4,6 @@ import (
 	"flag"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -47,7 +46,6 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGTERM)
 
 	s := new(servers.T)
-	s.Wg = new(sync.WaitGroup)
 	c := &config.T{
 		Filename:  configPathName,
 		EnvPrefix: "ka",
