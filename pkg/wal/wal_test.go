@@ -11,8 +11,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-var crcTable = crc32.MakeTable(crc32.Castagnoli)
-
 func crcSum(data []byte) int32 {
 	crc := crc32.New(crcTable)
 	crc.Write(data)
