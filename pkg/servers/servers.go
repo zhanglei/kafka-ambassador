@@ -1,6 +1,8 @@
 package servers
 
 import (
+	"sync"
+
 	"github.com/anchorfree/kafka-ambassador/pkg/server"
 	"github.com/anchorfree/kafka-ambassador/pkg/servers/grpcserver"
 	"github.com/anchorfree/kafka-ambassador/pkg/servers/httpserver"
@@ -25,10 +27,10 @@ func (s *T) Start() {
 			Config:     s.Config,
 			Prometheus: s.Prometheus,
 			Logger:     s.Logger,
-			Wg:         s.Wg,
+			Wg:         new(sync.WaitGroup),
+			Done:       make(chan bool),
 		}
 		go monitSrv.Start(monitoringPath)
-		s.Servers = append(s.Servers, monitSrv)
 	}
 	if s.Config.IsSet(httpPath + ".listen") {
 		httpSrv := &httpserver.Server{
@@ -36,7 +38,8 @@ func (s *T) Start() {
 			Config:     s.Config,
 			Prometheus: s.Prometheus,
 			Logger:     s.Logger,
-			Wg:         s.Wg,
+			Wg:         new(sync.WaitGroup),
+			Done:       make(chan bool),
 		}
 		go httpSrv.Start(httpPath)
 		s.Servers = append(s.Servers, httpSrv)
@@ -47,7 +50,8 @@ func (s *T) Start() {
 			Config:     s.Config,
 			Prometheus: s.Prometheus,
 			Logger:     s.Logger,
-			Wg:         s.Wg,
+			Wg:         new(sync.WaitGroup),
+			Done:       make(chan bool),
 		}
 		go grpcSrv.Start(grpcPath)
 		s.Servers = append(s.Servers, grpcSrv)

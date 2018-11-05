@@ -22,6 +22,7 @@ type T struct {
 	Prometheus *prometheus.Registry
 	Config     *viper.Viper
 	Wg         *sync.WaitGroup
+	Done       chan bool
 }
 
 func (s *T) Stop() {

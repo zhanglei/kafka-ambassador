@@ -59,6 +59,7 @@ func (s *Server) Start(configPath string) {
 	// and blocks until all the pending RPCs are finished.
 	s.Logger.Warn("Initiating graceful stop of GRPC server")
 	grpcSrv.GracefulStop()
+	close(s.Done)
 }
 
 func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
@@ -86,4 +87,6 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 func (s *Server) Stop() {
 	s.Logger.Info("Stopping GRPC server")
 	s.Wg.Done()
+	<-s.Done
+	s.Logger.Info("Stopped GRPC server")
 }
