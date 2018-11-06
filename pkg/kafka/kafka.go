@@ -85,36 +85,68 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 
 func (p *T) ReSend() {
 	ticker := time.NewTicker(p.Config.ResendPeriod)
+	var recordLimit int64
 
-	for _ = range ticker.C {
-		p.resendMutex.Lock()
-		if p.cb.State() == gobreaker.StateClosed {
-			p.Logger.Info("Running resend, as CB is not open")
-			now := time.Now().Unix()
-			for r := range p.wal.Iterate() {
-				rtime, err := wal.GetTime(r)
-				if err != nil {
-					rtime = time.Now()
-				}
-				if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
-					if p.cb.State() == gobreaker.StateClosed {
-						p.rl.Take()
-						p.produce(r.Topic, r.Payload, FromWAL)
-					}
+	for range ticker.C {
+		switch p.cb.State() {
+		// default limit is no limit
+		case gobreaker.StateOpen:
+			p.Logger.Info("CB is open, skipping resend")
+			continue
+		case gobreaker.StateHalfOpen:
+			recordLimit = 1
+			p.Logger.Infof("Running resend with limit %d, as CB is half open", recordLimit)
+		default:
+			recordLimit = 0
+			p.Logger.Infof("Running resend with limit %d, as CB is not open", recordLimit)
+		}
+
+		p.iterateLimit(recordLimit)
+
+		p.Logger.Info("Running compaction on the database")
+		p.wal.CompactAll()
+	}
+}
+
+func (p *T) iterateLimit(limit int64) {
+	var c int64
+	p.resendMutex.Lock()
+	defer p.resendMutex.Unlock()
+	now := time.Now().Unix()
+	iter := p.wal.Iterator()
+	defer iter.Release()
+	for iter.Next() {
+		c++
+		if limit != 0 && c <= limit {
+			key := iter.Key()
+			r, err := wal.FromBytes(iter.Value())
+			if err != nil {
+				p.Logger.Warnf("Could not read from record due to error %s", err)
+				p.wal.Del(key)
+				continue
+			}
+			rtime, err := wal.GetTime(r)
+			if err != nil {
+				rtime = time.Now()
+			}
+			if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
+				if p.cb.State() != gobreaker.StateOpen {
+					p.rl.Take()
+					p.produce(r.Topic, r.Payload, FromWAL)
+				} else {
+					p.Logger.Infof("We have got state change during retry, current state is %v, abort retry", p.cb.State())
+					return
 				}
 			}
-
-			p.Logger.Info("Running compaction on the database")
-			p.wal.CompactAll()
 		} else {
-			p.Logger.Info("CB is open, skipping resend")
+			// limit is bigger or equal to counter
+			return
 		}
-		p.resendMutex.Unlock()
 	}
 }
 
 func (p *T) Send(topic string, message []byte) {
-	if p.cb.State() != gobreaker.StateOpen {
+	if p.cb.State() == gobreaker.StateClosed {
 		p.produce(topic, message, Direct)
 		atomic.AddInt64(p.transit, 1)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {

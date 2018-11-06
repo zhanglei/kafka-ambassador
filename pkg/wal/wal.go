@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/storage"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
@@ -21,7 +22,8 @@ type I interface {
 	Del([]byte) error
 	Get([]byte) (*pb.Record, error)
 	CompactAll() error
-	Iterate() chan *pb.Record
+	Iterate(int64) chan *pb.Record
+	Iterator() iterator.Iterator
 	SetRecord(string, []byte) error
 }
 type Wal struct {
@@ -128,20 +130,29 @@ func (w *Wal) setWALMessages() {
 	walMessages.Set(float64(cnt))
 }
 
-func (w *Wal) Iterate() chan *pb.Record {
+func (w *Wal) Iterator() iterator.Iterator {
+	return w.storage.NewIterator(nil, nil)
+}
+
+func (w *Wal) Iterate(limit int64) chan *pb.Record {
+	var cnt int64
 	c := make(chan *pb.Record)
 	iter := w.storage.NewIterator(nil, nil)
 
 	go func() {
 		for iter.Next() {
-			key := iter.Key()
-			r, err := FromBytes(iter.Value())
-			if err != nil {
-				w.logger.Warnf("Could not read from record due to error %s", err)
-				w.Del(key)
-				continue
+			if limit != 0 && cnt <= limit {
+				key := iter.Key()
+				r, err := FromBytes(iter.Value())
+				if err != nil {
+					w.logger.Warnf("Could not read from record due to error %s", err)
+					w.Del(key)
+					continue
+				}
+				c <- r
+			} else {
+				break
 			}
-			c <- r
 		}
 		iter.Release()
 		close(c)
