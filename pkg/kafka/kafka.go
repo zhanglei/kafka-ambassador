@@ -117,7 +117,7 @@ func (p *T) iterateLimit(limit int64) {
 	defer iter.Release()
 	for iter.Next() {
 		c++
-		if limit != 0 && c <= limit {
+		if limit == 0 || c <= limit {
 			key := iter.Key()
 			r, err := wal.FromBytes(iter.Value())
 			if err != nil {
