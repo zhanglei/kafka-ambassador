@@ -36,6 +36,7 @@ type T struct {
 	resendMutex *sync.Mutex
 	cb          *gobreaker.TwoStepCircuitBreaker
 	rl          ratelimit.Limiter
+	halfOpenRL  ratelimit.Limiter
 	transit     *int64
 }
 
@@ -67,6 +68,7 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	p.resendMutex = new(sync.Mutex)
 	p.wal, err = wal.New(p.Config.WalDirectory, prom, p.Logger)
 	p.rl = ratelimit.New(p.Config.ResendRateLimit)
+	// p.halfOpenRL = ratelimit.New()
 	p.transit = new(int64)
 	if err != nil {
 		p.Logger.Errorf("Could not create kafka producer due to: %v", err)
@@ -149,14 +151,15 @@ func (p *T) iterateLimit(limit int64) {
 }
 
 func (p *T) Send(topic string, message []byte) {
-	if p.cb.State() == gobreaker.StateClosed {
+	switch p.cb.State() {
+	case gobreaker.StateClosed:
 		p.produce(topic, message, Direct)
 		atomic.AddInt64(p.transit, 1)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
 		}
-	} else {
+	default:
 		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
 		p.wal.SetRecord(topic, message)
 	}

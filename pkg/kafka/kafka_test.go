@@ -15,10 +15,10 @@ import (
 
 var (
 	defaults map[string]interface{} = map[string]interface{}{
-		"producer.wal.path":                           "",
-		"kafka.socket.timeout.ms":                     1000, // mark connection as stalled
-		"kafka.message.timeout.ms":                    6000, // try to deliver message with retries
-		"kafka.max.in.flight.requests.per.connection": 20,
+		"producer.wal.path":                     "",
+		"socket.timeout.ms":                     1000, // mark connection as stalled
+		"message.timeout.ms":                    6000, // try to deliver message with retries
+		"max.in.flight.requests.per.connection": 20,
 	}
 )
 
@@ -46,8 +46,13 @@ func TestIterator(t *testing.T) {
 
 	flatten := config.Flatten(configMap)
 	flatten["bootstrap.servers"] = address
-	flatten["kafka.socket.timeout.ms"] = 1
-	flatten["kafka.message.timeout.ms"] = 2
+	flatten["socket.timeout.ms"] = 10
+	flatten["message.timeout.ms"] = 2
+
+	// TODO: I believe it is possible to simplify this part, but so far it is 2 loops.
+	for k, v := range flatten {
+		configMap[k] = v
+	}
 
 	p := &T{
 		Logger: logger.Sugar(),
@@ -63,6 +68,7 @@ func TestIterator(t *testing.T) {
 			SetVersion(1).
 			SetError("test", 0, sarama.ErrNetworkException),
 	})
+	time.Sleep(time.Second * 1)
 	p.Send("test", []byte("my message"))
 	for i := 0; i < 10; i++ {
 		err := p.wal.SetRecord("test", []byte("my message"+string(i)))
