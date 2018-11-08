@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/config"
+	"github.com/anchorfree/kafka-ambassador/pkg/kafka"
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/servers"
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,12 +66,12 @@ func main() {
 	s.Prometheus = prometheus.NewRegistry()
 
 	// servers
-	kafkaParams, err := config.KafkaParams(s.Config)
+	kafkaParams, err := kafka.KafkaParams(s.Config)
 	if err != nil {
 		return
 	}
 	s.Producer.Logger = s.Logger
-	s.Producer.Config = config.ProducerConfig(s.Config)
+	s.Producer.Config = kafka.ProducerConfig(s.Config)
 	s.Producer.Init(&kafkaParams, s.Prometheus)
 	s.Start()
 	signal := <-sig

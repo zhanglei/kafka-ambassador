@@ -25,6 +25,7 @@ type I interface {
 	Iterate(int64) chan *pb.Record
 	Iterator() iterator.Iterator
 	SetRecord(string, []byte) error
+	Messages() int64
 }
 type Wal struct {
 	logger  logger.Logger
@@ -45,6 +46,7 @@ func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, err
 			return nil, err
 		}
 	} else {
+		logger.Debug("WAL folder is in RAM")
 		s = storage.NewMemStorage()
 	}
 
@@ -61,6 +63,7 @@ func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, err
 
 	registerMetrics(prom)
 	go wal.collectPeriodically(30 * time.Second)
+	logger.Info("WAL initilized")
 	return wal, nil
 }
 
@@ -82,6 +85,7 @@ func (w *Wal) SetRecord(topic string, value []byte) error {
 		return err
 	}
 	msgWrites.With(prometheus.Labels{"topic": topic}).Inc()
+	w.logger.Debugf("Storing record with CRC %v to WAL", key)
 	return w.Set(key, b)
 }
 
@@ -120,13 +124,17 @@ func (w *Wal) CompactAll() error {
 	return w.storage.CompactRange(r)
 }
 
-func (w *Wal) setWALMessages() {
+func (w *Wal) Messages() (cnt int64) {
 	iter := w.storage.NewIterator(nil, nil)
-	cnt := 0
+	defer iter.Release()
 	for iter.Next() {
 		cnt++
 	}
-	iter.Release()
+	return cnt
+}
+
+func (w *Wal) setWALMessages() {
+	cnt := w.Messages()
 	walMessages.Set(float64(cnt))
 }
 
