@@ -58,11 +58,15 @@ func TestIterator(t *testing.T) {
 		},
 	}
 	p.Init(&configMap, prometheus.NewRegistry())
+	broker.SetHandlerByMap(map[string]sarama.MockResponse{
+		"ProduceRequest": sarama.NewMockProduceResponse(t).
+			SetVersion(1).
+			SetError("test", 0, sarama.ErrNetworkException),
+	})
 	p.Send("test", []byte("my message"))
 	for i := 0; i < 10; i++ {
 		err := p.wal.SetRecord("test", []byte("my message"+string(i)))
 		assert.Nil(err)
-
 	}
 	time.Sleep(time.Second * 1)
 	assert.Equal(int64(10), p.wal.Messages())
