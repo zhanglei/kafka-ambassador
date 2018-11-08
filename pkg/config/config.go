@@ -2,10 +2,7 @@ package config
 
 import (
 	"reflect"
-	"strings"
 
-	producer "github.com/anchorfree/kafka-ambassador/pkg/kafka"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/spf13/viper"
 )
 
@@ -31,60 +28,6 @@ func (c *T) ReadConfig(defaults map[string]interface{}) (*viper.Viper, error) {
 
 	err := v.ReadInConfig()
 	return v, err
-}
-
-func ProducerConfig(c *viper.Viper) *producer.Config {
-	p := new(producer.Config)
-	p.ResendPeriod = c.GetDuration("producer.resend.period")
-	p.ResendRateLimit = c.GetInt("producer.resend.rate_limit")
-	p.AlwaysWalTopics = c.GetStringSlice("producer.wal.always_topics")
-	p.DisableWalTopics = c.GetStringSlice("producer.wal.disable_topics")
-	p.WalDirectory = c.GetString("producer.wal.path")
-	switch mode := c.GetString("producer.wal.mode"); mode {
-	case "fallback":
-		p.WalMode = producer.Fallback
-	case "always":
-		p.WalMode = producer.Always
-	case "disable":
-		p.WalMode = producer.Disable
-	default:
-		p.WalMode = producer.Fallback
-	}
-	return p
-}
-
-func KafkaParams(c *viper.Viper) (kafka.ConfigMap, error) {
-	sub := c.Sub("kafka")
-	var cm, t kafka.ConfigMap
-	var brokers string
-	err := sub.Unmarshal(&cm)
-	if err != nil {
-		return nil, err
-	}
-	err = sub.Unmarshal(&t)
-	if err != nil {
-		return nil, err
-	}
-	// explicitly set bootstrap.servers has priority over brokers config
-	if sub.IsSet("bootstrap.severs") {
-		brokers = sub.GetString("bootstrap.servers")
-	} else {
-		brokers = strings.Join(sub.GetStringSlice("brokers"), ",")
-	}
-
-	flatten := Flatten(cm)
-	flatten["bootstrap.servers"] = brokers
-
-	// TODO: I believe it is possible to simplify this part, but so far it is 2 loops.
-	for k, v := range flatten {
-		cm[k] = v
-	}
-
-	// cleanup the raw data
-	for k, _ := range t {
-		delete(cm, k)
-	}
-	return cm, nil
 }
 
 func Flatten(value interface{}) map[string]interface{} {

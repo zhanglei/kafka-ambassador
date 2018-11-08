@@ -51,9 +51,9 @@ type Config struct {
 func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error {
 	var err error
 	p.Logger.Info("Creating Kafka producer")
-	for k, v := range *kafkaParams {
-		p.Logger.Infof("Kafka param %s: %v", k, v)
-	}
+	// for k, v := range *kafkaParams {
+	// 	p.Logger.Infof("Kafka param %s: %v", k, v)
+	// }
 	p.Producer, err = kafka.NewProducer(kafkaParams)
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
@@ -75,8 +75,11 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	registerMetrics(prom)
 	p.Logger.Info("Starting up kafka events tracker")
 	go p.producerEventsHander()
-	p.Logger.Infof("Starting up kafka resend process with period %s", p.Config.ResendPeriod.String())
-	go p.ReSend()
+
+	if p.Config.ResendPeriod != 0 {
+		p.Logger.Infof("Starting up kafka resend process with period %s", p.Config.ResendPeriod.String())
+		go p.ReSend()
+	}
 	// monitor CB state every 10 seconds
 	go p.trackCBState(10 * time.Second)
 	go p.kafkaStats(30 * time.Second)
@@ -117,7 +120,7 @@ func (p *T) iterateLimit(limit int64) {
 	defer iter.Release()
 	for iter.Next() {
 		c++
-		if limit != 0 && c <= limit {
+		if limit == 0 || c <= limit {
 			key := iter.Key()
 			r, err := wal.FromBytes(iter.Value())
 			if err != nil {
@@ -153,7 +156,6 @@ func (p *T) Send(topic string, message []byte) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
 		}
-		msgSent.With(prometheus.Labels{"topic": topic}).Inc()
 	} else {
 		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
 		p.wal.SetRecord(topic, message)
@@ -170,6 +172,7 @@ func (p *T) produce(topic string, message []byte, opaque interface{}) {
 		Value:  message,
 		Opaque: opaque,
 	}
+	msgSent.With(prometheus.Labels{"topic": topic}).Inc()
 	msgInTransit.Add(1)
 }
 
@@ -255,25 +258,30 @@ func (p *T) setCBState(name string, from, to gobreaker.State) {
 }
 
 func (p *T) trackCBState(period time.Duration) {
-	ticker := time.NewTicker(p.Config.ResendPeriod)
+	var ticker *time.Ticker
+	if p.Config.ResendPeriod != 0 {
+		ticker = time.NewTicker(p.Config.ResendPeriod)
 
-	for _ = range ticker.C {
-		switch s := p.cb.State(); s {
-		case gobreaker.StateClosed:
-			cbCurrentState.Set(0)
-		case gobreaker.StateHalfOpen:
-			cbCurrentState.Set(0.5)
-		case gobreaker.StateOpen:
-			cbCurrentState.Set(1)
+		for _ = range ticker.C {
+			switch s := p.cb.State(); s {
+			case gobreaker.StateClosed:
+				cbCurrentState.Set(0)
+			case gobreaker.StateHalfOpen:
+				cbCurrentState.Set(0.5)
+			case gobreaker.StateOpen:
+				cbCurrentState.Set(1)
+			}
 		}
 	}
 }
 
 func (p *T) kafkaStats(period time.Duration) {
-	ticker := time.NewTicker(p.Config.ResendPeriod)
-
-	for _ = range ticker.C {
-		producerQueueLen.Set(float64(p.Producer.Len()))
+	var ticker *time.Ticker
+	if p.Config.ResendPeriod != 0 {
+		ticker = time.NewTicker(p.Config.ResendPeriod)
+		for _ = range ticker.C {
+			producerQueueLen.Set(float64(p.Producer.Len()))
+		}
 	}
 }
 

@@ -1,14 +1,12 @@
 package wal
 
 import (
-	"fmt"
 	"hash/crc32"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/storage"
-	"github.com/syndtr/goleveldb/leveldb/util"
+	"go.uber.org/zap"
 )
 
 func crcSum(data []byte) int32 {
@@ -27,66 +25,46 @@ var (
 	crc         = crcSum(testpayload)
 )
 
-// func TestWriteReadMessage(t *testing.T) {
-// 	assert := assert.New(t)
-// 	s, err := New(folder)
-// 	assert.Nil(err)
-// 	s.SetRecord(topic, testpayload)
-// 	r, err := s.Get([]byte("1234567"))
-// 	assert.NotNil(r)
-// 	assert.Equal(r.Topic, topic)
-// 	s.Close()
-// 	// Open data folder
-// 	s, err = New(topic)
-// 	assert.Nil(err)
-// 	r, err = s.Get([]byte("1234567"))
-// 	assert.NotNil(r)
-// 	assert.Equal(r.Topic, "test")
-// 	assert.Equal(r.Payload, testpayload)
-
-// 	err = s.Del([]byte("1234567"))
-// 	assert.Nil(err)
-
-// 	r, err = s.Get([]byte("1234567"))
-// 	assert.Nil(r)
-// }
-
-func TestWALIterator(t *testing.T) {
+func TestIterator(t *testing.T) {
+	logger := zap.NewExample()
 	var key, val []byte
 	cnt := 0
 	assert := assert.New(t)
-	storage := storage.NewMemStorage()
-	db, err := leveldb.Open(storage, nil)
+	w, err := New("", prometheus.NewRegistry(), logger.Sugar())
 	assert.Nil(err)
-	db.Put([]byte("key1"), []byte("val1"), nil)
-	db.Put([]byte("key2"), []byte("val2"), nil)
-	iter := db.NewIterator(nil, nil)
+	w.Set([]byte("key1"), []byte("val1"))
+	w.Set([]byte("key2"), []byte("val2"))
+	iter := w.Iterator()
 	for iter.Next() {
 		cnt++
 		key = iter.Key()
 		val = iter.Value()
-		fmt.Printf("%s: %s\n", string(key), string(val))
 	}
 	assert.Equal(2, cnt)
-	db.Put([]byte("key3"), []byte("val3"), nil)
+	w.Set([]byte("key3"), []byte("val3"))
 	iter.Release()
-	r := util.Range{
-		Start: nil,
-		Limit: nil,
-	}
-	db.CompactRange(r)
+	w.CompactAll()
 
-	db.Put([]byte("key4"), []byte("val4"), nil)
-	iter = db.NewIterator(nil, nil)
+	w.Set([]byte("key4"), []byte("val4"))
+	iter = w.Iterator()
 	cnt = 0
 	for iter.Next() {
 		cnt++
 		key = iter.Key()
 		val = iter.Value()
-		fmt.Printf("%s: %s\n", string(key), string(val))
 	}
 	assert.Equal(4, cnt)
 	assert.Equal([]byte("key4"), key)
 	assert.Equal([]byte("val4"), val)
 	iter.Release()
+}
+
+func TestMessages(t *testing.T) {
+	logger := zap.NewExample()
+	assert := assert.New(t)
+	w, err := New("", prometheus.NewRegistry(), logger.Sugar())
+	assert.Nil(err)
+	w.Set([]byte("key1"), []byte("val1"))
+	w.Set([]byte("key2"), []byte("val2"))
+	assert.Equal(int64(2), w.Messages())
 }
