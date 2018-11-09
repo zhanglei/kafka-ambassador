@@ -47,6 +47,9 @@ type Config struct {
 	DisableWalTopics []string
 	WalDirectory     string
 	ResendRateLimit  int
+	CBTimeout        time.Duration
+	CBInterval       time.Duration
+	CBMaxRequests    uint32
 }
 
 func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error {
@@ -58,10 +61,11 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	p.Producer, err = kafka.NewProducer(kafkaParams)
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
-		MaxRequests:   1,
-		Interval:      0,
-		Timeout:       0,
+		MaxRequests:   p.Config.CBMaxRequests,
+		Timeout:       p.Config.CBTimeout,
+		Interval:      p.Config.CBInterval,
 		OnStateChange: p.setCBState,
+		ReadyToTrip:   p.readyToTrip,
 	}
 	p.cb = gobreaker.NewTwoStepCircuitBreaker(cbSettings)
 	p.mutex = new(sync.RWMutex)
@@ -86,6 +90,11 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	go p.trackCBState(10 * time.Second)
 	go p.kafkaStats(30 * time.Second)
 	return err
+}
+
+func (p *T) readyToTrip(c gobreaker.Counts) bool {
+	p.Logger.Debugf("failures: %v, success: %v, requests: %v", c.ConsecutiveFailures, c.ConsecutiveSuccesses, c.Requests)
+	return c.ConsecutiveFailures > 5
 }
 
 func (p *T) ReSend() {
@@ -159,6 +168,9 @@ func (p *T) Send(topic string, message []byte) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
 		}
+	case gobreaker.StateHalfOpen:
+		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is HalfOpen state", topic)
+		p.wal.SetRecord(topic, message)
 	default:
 		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
 		p.wal.SetRecord(topic, message)
@@ -258,6 +270,7 @@ func (p *T) setCBState(name string, from, to gobreaker.State) {
 	case gobreaker.StateOpen:
 		cbState.With(prometheus.Labels{"name": name, "state": "open"}).Inc()
 	}
+	p.Logger.Infof("%s CB state changed from: [%s] to: [%s]", name, from, to)
 }
 
 func (p *T) trackCBState(period time.Duration) {
