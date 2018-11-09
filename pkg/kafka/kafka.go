@@ -50,6 +50,7 @@ type Config struct {
 	CBTimeout        time.Duration
 	CBInterval       time.Duration
 	CBMaxRequests    uint32
+	CBMaxFailures    uint32
 }
 
 func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error {
@@ -59,6 +60,9 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	// 	p.Logger.Infof("Kafka param %s: %v", k, v)
 	// }
 	p.Producer, err = kafka.NewProducer(kafkaParams)
+	if p.Config.CBMaxFailures == 0 {
+		p.Config.CBMaxFailures = 5
+	}
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
 		MaxRequests:   p.Config.CBMaxRequests,
@@ -94,7 +98,7 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 
 func (p *T) readyToTrip(c gobreaker.Counts) bool {
 	p.Logger.Debugf("failures: %v, success: %v, requests: %v", c.ConsecutiveFailures, c.ConsecutiveSuccesses, c.Requests)
-	return c.ConsecutiveFailures > 5
+	return c.ConsecutiveFailures > p.Config.CBMaxFailures
 }
 
 func (p *T) ReSend() {
