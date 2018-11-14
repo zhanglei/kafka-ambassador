@@ -27,21 +27,26 @@ const (
 	Direct
 )
 
+const defaultMaxInTransit = 500000
+
 type T struct {
-	Producer    *kafka.Producer
-	Logger      logger.Logger
-	Config      *Config
-	wal         wal.I
-	mutex       *sync.RWMutex
-	resendMutex *sync.Mutex
-	cb          *gobreaker.TwoStepCircuitBreaker
-	rl          ratelimit.Limiter
-	halfOpenRL  ratelimit.Limiter
-	transit     *int64
+	Producer        *kafka.Producer
+	Logger          logger.Logger
+	Config          *Config
+	wal             wal.I
+	mutex           *sync.RWMutex
+	resendMutex     *sync.Mutex
+	cb              *gobreaker.TwoStepCircuitBreaker
+	rl              ratelimit.Limiter
+	transit         *int64
+	halfOpenTransit *uint32
+	once            *sync.Once
+	lameDuck        bool
 }
 
 type Config struct {
 	ResendPeriod     time.Duration
+	MaxInTransit     uint32
 	WalMode          Mode
 	AlwaysWalTopics  []string
 	DisableWalTopics []string
@@ -78,6 +83,12 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	p.rl = ratelimit.New(p.Config.ResendRateLimit)
 	// p.halfOpenRL = ratelimit.New()
 	p.transit = new(int64)
+	p.halfOpenTransit = new(uint32)
+	p.once = new(sync.Once)
+	if p.Config.MaxInTransit == 0 {
+		p.Config.MaxInTransit = defaultMaxInTransit
+
+	}
 	if err != nil {
 		p.Logger.Errorf("Could not create kafka producer due to: %v", err)
 		return err
@@ -94,11 +105,6 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	go p.trackCBState(10 * time.Second)
 	go p.kafkaStats(30 * time.Second)
 	return err
-}
-
-func (p *T) readyToTrip(c gobreaker.Counts) bool {
-	p.Logger.Debugf("failures: %v, success: %v, requests: %v", c.ConsecutiveFailures, c.ConsecutiveSuccesses, c.Requests)
-	return c.ConsecutiveFailures > p.Config.CBMaxFailures
 }
 
 func (p *T) ReSend() {
@@ -119,7 +125,10 @@ func (p *T) ReSend() {
 			p.Logger.Infof("Running resend with limit %d, as CB is not open", recordLimit)
 		}
 
-		p.iterateLimit(recordLimit)
+		// we should not do resend in lame duck mode
+		if !p.lameDuck {
+			p.iterateLimit(recordLimit)
+		}
 
 		p.Logger.Info("Running compaction on the database")
 		p.wal.CompactAll()
@@ -134,6 +143,10 @@ func (p *T) iterateLimit(limit int64) {
 	iter := p.wal.Iterator()
 	defer iter.Release()
 	for iter.Next() {
+		// we should not do resend in lame duck mode
+		if p.lameDuck {
+			return
+		}
 		c++
 		if limit == 0 || c <= limit {
 			key := iter.Key()
@@ -166,15 +179,23 @@ func (p *T) iterateLimit(limit int64) {
 func (p *T) Send(topic string, message []byte) {
 	switch p.cb.State() {
 	case gobreaker.StateClosed:
+		// we should not process with we reached MaxTransit limit, it seems kafka is not responding
+		if int64(p.Config.MaxInTransit) <= *p.transit {
+			p.once.Do(p.cbOpen)
+		}
 		p.produce(topic, message, Direct)
-		atomic.AddInt64(p.transit, 1)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
 		}
 	case gobreaker.StateHalfOpen:
-		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is HalfOpen state", topic)
-		p.wal.SetRecord(topic, message)
+		if uint32(*p.halfOpenTransit) <= p.Config.CBMaxRequests {
+			p.produce(topic, message, Direct)
+			atomic.AddUint32(p.halfOpenTransit, 1)
+		} else {
+			p.Logger.Debugf("Storing message to topic: %s into WAL as CB in Half-Open state", topic)
+			p.wal.SetRecord(topic, message)
+		}
 	default:
 		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
 		p.wal.SetRecord(topic, message)
@@ -191,6 +212,7 @@ func (p *T) produce(topic string, message []byte, opaque interface{}) {
 		Value:  message,
 		Opaque: opaque,
 	}
+	atomic.AddInt64(p.transit, 1)
 	msgSent.With(prometheus.Labels{"topic": topic}).Inc()
 	msgInTransit.Add(1)
 }
@@ -199,7 +221,7 @@ func (p *T) producerEventsHander() {
 	for e := range p.Producer.Events() {
 		switch ev := e.(type) {
 		case *kafka.Message:
-			success, err := p.cb.Allow()
+			success, skipCBUpdate := p.cb.Allow()
 			m := ev
 			atomic.AddInt64(p.transit, -1)
 			msgInTransit.Add(-1)
@@ -220,11 +242,9 @@ func (p *T) producerEventsHander() {
 						"topic": *m.TopicPartition.Topic,
 						"error": m.TopicPartition.Error.Error()}).Inc()
 				}
-				if err != nil {
-					// We are not allowed to do anything
-					break
+				if skipCBUpdate != nil {
+					success(false)
 				}
-				success(false)
 			} else {
 				msgOK.With(prometheus.Labels{"topic": *m.TopicPartition.Topic}).Inc()
 				if m.Opaque == FromWAL || p.isAlwaysWal(*m.TopicPartition.Topic) {
@@ -232,11 +252,9 @@ func (p *T) producerEventsHander() {
 					p.Logger.Debugf("removing CRC: %s", string(crc))
 					p.wal.Del(crc)
 				}
-				if err != nil {
-					// We are not allowed to do anything
-					break
+				if skipCBUpdate != nil {
+					success(true)
 				}
-				success(true)
 			}
 		default:
 			eventIgnored.Inc()
@@ -246,7 +264,7 @@ func (p *T) producerEventsHander() {
 func (p *T) isAlwaysWal(topic string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	for i, _ := range p.Config.AlwaysWalTopics {
+	for i := range p.Config.AlwaysWalTopics {
 		if p.Config.AlwaysWalTopics[i] == topic {
 			return true
 		}
@@ -257,7 +275,7 @@ func (p *T) isAlwaysWal(topic string) bool {
 func (p *T) isDisableWal(topic string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	for i, _ := range p.Config.DisableWalTopics {
+	for i := range p.Config.DisableWalTopics {
 		if p.Config.DisableWalTopics[i] == topic {
 			return true
 		}
@@ -265,41 +283,11 @@ func (p *T) isDisableWal(topic string) bool {
 	return false
 }
 
-func (p *T) setCBState(name string, from, to gobreaker.State) {
-	switch to {
-	case gobreaker.StateClosed:
-		cbState.With(prometheus.Labels{"name": name, "state": "closed"}).Inc()
-	case gobreaker.StateHalfOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "half"}).Inc()
-	case gobreaker.StateOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "open"}).Inc()
-	}
-	p.Logger.Infof("%s CB state changed from: [%s] to: [%s]", name, from, to)
-}
-
-func (p *T) trackCBState(period time.Duration) {
-	var ticker *time.Ticker
-	if p.Config.ResendPeriod != 0 {
-		ticker = time.NewTicker(p.Config.ResendPeriod)
-
-		for _ = range ticker.C {
-			switch s := p.cb.State(); s {
-			case gobreaker.StateClosed:
-				cbCurrentState.Set(0)
-			case gobreaker.StateHalfOpen:
-				cbCurrentState.Set(0.5)
-			case gobreaker.StateOpen:
-				cbCurrentState.Set(1)
-			}
-		}
-	}
-}
-
 func (p *T) kafkaStats(period time.Duration) {
 	var ticker *time.Ticker
 	if p.Config.ResendPeriod != 0 {
 		ticker = time.NewTicker(p.Config.ResendPeriod)
-		for _ = range ticker.C {
+		for range ticker.C {
 			producerQueueLen.Set(float64(p.Producer.Len()))
 		}
 	}
@@ -324,4 +312,8 @@ func (p *T) QueueIsEmpty() bool {
 		return true
 	}
 	return false
+}
+
+func (p *T) LameDuckMode() {
+	p.lameDuck = true
 }

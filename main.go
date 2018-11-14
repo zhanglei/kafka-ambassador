@@ -79,6 +79,7 @@ func main() {
 	case syscall.SIGTERM, syscall.SIGINT:
 		s.Stop()
 		for {
+			s.Producer.LameDuckMode()
 			if !s.Producer.QueueIsEmpty() {
 				s.Logger.Info("We still have messages in queue, waiting")
 				time.Sleep(5 * time.Second)

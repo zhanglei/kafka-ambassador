@@ -150,6 +150,16 @@
   version = "v1.0.0"
 
 [[projects]]
+  name = "github.com/optiopay/kafka"
+  packages = [
+    ".",
+    "kafkatest",
+    "proto"
+  ]
+  revision = "969d39f8acbefd704dea8ee8fede3f4413f5ed9e"
+  version = "v2.0.4"
+
+[[projects]]
   name = "github.com/pelletier/go-toml"
   packages = ["."]
   revision = "c01d1270ff3e442a8a57cddc1c92dc1138598194"
@@ -417,6 +427,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "872f705a203495969f58004a114bfdc94ab450d9321fd46a8742928a8d6dad2d"
+  inputs-digest = "f1c2dc5ac48e4d9dfe114b6c41f41e323b29860dabb790333c67d976fb0dc25f"
   solver-name = "gps-cdcl"
   solver-version = 1
