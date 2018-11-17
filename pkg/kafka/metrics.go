@@ -64,6 +64,13 @@ var (
 			Help: "Number of messages and requests waiting to be transmitted to the broker as well as delivery reports queued for the application",
 		},
 	)
+	libVersion = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "producer_kafka_librdkafka_version",
+			Help: "Version of underlying librdkafka library",
+		},
+		[]string{"version"},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {
@@ -76,5 +83,6 @@ func registerMetrics(prom *prometheus.Registry) {
 		producerQueueLen,
 		eventIgnored,
 		msgInTransit,
+		libVersion,
 	)
 }
