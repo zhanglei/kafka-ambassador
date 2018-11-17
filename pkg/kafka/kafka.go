@@ -216,7 +216,13 @@ func (p *T) producerEventsHander() {
 				}
 				success(true)
 			}
+		case kafka.Error:
+			p.Logger.Warnf("%v", ev)
+			if ev.Code() == kafka.ErrAllBrokersDown {
+				p.Logger.Warn("All brokers are down, forcing Circuit Breaker open")
+			}
 		default:
+			p.Logger.Warnf("Ignored message: %v", ev)
 			eventIgnored.Inc()
 		}
 	}
