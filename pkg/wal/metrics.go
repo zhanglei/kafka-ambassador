@@ -153,13 +153,12 @@ func (w *Wal) collectPeriodically(period time.Duration) {
 	ticker := time.NewTicker(period)
 
 	stats := new(leveldb.DBStats)
-	for _ = range ticker.C {
+	for range ticker.C {
 		err := w.storage.Stats(stats)
-		if err != nil {
-			//
+		if err == nil {
+			statsToProm(stats)
+			w.setWALMessages()
 		}
-		statsToProm(stats)
-		w.setWALMessages()
 	}
 }
 
@@ -178,19 +177,19 @@ func statsToProm(stats *leveldb.DBStats) {
 	ldbStatsBlockCacheSize.Set(float64(stats.BlockCacheSize))
 	ldbStatsOpenedTablesCount.Set(float64(stats.OpenedTablesCount))
 	// these are array metrics
-	for i, _ := range stats.LevelSizes {
+	for i := range stats.LevelSizes {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelSizes[i])
 	}
-	for i, _ := range stats.LevelTablesCounts {
+	for i := range stats.LevelTablesCounts {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelTablesCounts[i])
 	}
-	for i, _ := range stats.LevelRead {
+	for i := range stats.LevelRead {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelRead[i])
 	}
-	for i, _ := range stats.LevelWrite {
+	for i := range stats.LevelWrite {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelWrite[i])
 	}
-	for i, _ := range stats.LevelDurations {
+	for i := range stats.LevelDurations {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelDurations[i].Seconds)
 	}
 }

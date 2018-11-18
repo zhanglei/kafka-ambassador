@@ -60,6 +60,9 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 		p.Logger.Infof("Kafka param %s: %v", k, v)
 	}
 	p.Producer, err = kafka.NewProducer(kafkaParams)
+	if err != nil {
+		p.Logger.Errorf("Could not create producer due to: %v", err)
+	}
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
 		MaxRequests:   p.Config.CBMaxRequests,
@@ -210,7 +213,7 @@ func (p *T) producerEventsHander() {
 					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
 				} else {
 					// we could put the message into some malformed topic or similar
-					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					crc := wal.Uint32ToBytes(wal.CrcSum(m.Value))
 					p.Logger.Infof("Dropped message CRC: %s as we can't retry it due to: %s", string(crc), m.TopicPartition.Error.Error())
 					p.wal.Del(crc)
 					msgDropped.With(prometheus.Labels{
@@ -225,7 +228,7 @@ func (p *T) producerEventsHander() {
 			} else {
 				msgOK.With(prometheus.Labels{"topic": *m.TopicPartition.Topic}).Inc()
 				if m.Opaque == FromWAL || p.isAlwaysWal(*m.TopicPartition.Topic) {
-					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					crc := wal.Uint32ToBytes(wal.CrcSum(m.Value))
 					p.Logger.Debugf("removing CRC: %s", string(crc))
 					p.wal.Del(crc)
 				}
@@ -250,7 +253,7 @@ func (p *T) producerEventsHander() {
 func (p *T) isAlwaysWal(topic string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	for i, _ := range p.Config.AlwaysWalTopics {
+	for i := range p.Config.AlwaysWalTopics {
 		if p.Config.AlwaysWalTopics[i] == topic {
 			return true
 		}
@@ -293,10 +296,7 @@ func canRetry(err error) bool {
 
 func (p *T) QueueIsEmpty() bool {
 	p.Logger.Infof("Messages in queue: %d", *p.transit)
-	if *p.transit <= 0 {
-		return true
-	}
-	return false
+	return *p.transit <= 0
 }
 
 func (p *T) Shutdown() {

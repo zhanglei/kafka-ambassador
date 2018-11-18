@@ -48,18 +48,16 @@ func (p *T) cbClose() {
 		time.Sleep(time.Second * p.Config.CBTimeout)
 		for i := uint32(0); i < p.Config.CBMaxRequests; i++ {
 			success, err := p.cb.Allow()
-			if err != nil {
-
+			if err == nil {
+				success(true)
 			}
-			success(true)
 		}
 	case gobreaker.StateHalfOpen:
 		for i := uint32(0); i < p.Config.CBMaxRequests; i++ {
 			success, err := p.cb.Allow()
-			if err != nil {
-
+			if err == nil {
+				success(true)
 			}
-			success(true)
 		}
 	default:
 		return
