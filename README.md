@@ -14,7 +14,7 @@ Unfortunately these products, even though quite mature and good, doesn't satisfy
 
 - High performance (we have around 60k msg/sec on one instance)
 - Fallback to disk in case kafka is not available.
-- always ready for a switch to ,ity to
+- always ready for a switch to Amazon Redshift or any other message queue.
 
 This package doesn't solve following problems:
 
