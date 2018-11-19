@@ -16,8 +16,8 @@
 [[projects]]
   name = "github.com/confluentinc/confluent-kafka-go"
   packages = ["kafka"]
-  revision = "5e4d04e05fc319ce5996a867aafef29059f26862"
-  version = "v0.11.4"
+  revision = "460e8e43b282a1a68219df600ef63442b81faf5f"
+  version = "v0.11.6"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -124,6 +124,16 @@
   packages = ["."]
   revision = "fa473d140ef3c6adf42d6b391fe76707f1f243c8"
   version = "v1.0.0"
+
+[[projects]]
+  name = "github.com/optiopay/kafka"
+  packages = [
+    ".",
+    "kafkatest",
+    "proto"
+  ]
+  revision = "969d39f8acbefd704dea8ee8fede3f4413f5ed9e"
+  version = "v2.0.4"
 
 [[projects]]
   name = "github.com/pelletier/go-toml"
@@ -378,6 +388,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5748b7afb6a126271c123d42cc7f09968f145648fa76a910affe6f853febb421"
+  inputs-digest = "c6f28d6ee76e7ad1c589c430a9e11cf35bdf3464170897a33d97e44f38da8cee"
   solver-name = "gps-cdcl"
   solver-version = 1

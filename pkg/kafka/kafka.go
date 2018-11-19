@@ -37,6 +37,7 @@ type T struct {
 	cb          *gobreaker.TwoStepCircuitBreaker
 	rl          ratelimit.Limiter
 	transit     *int64
+	inShutdown  bool
 }
 
 type Config struct {
@@ -46,6 +47,10 @@ type Config struct {
 	DisableWalTopics []string
 	WalDirectory     string
 	ResendRateLimit  int
+	CBTimeout        time.Duration
+	CBInterval       time.Duration
+	CBMaxFailures    uint32
+	CBMaxRequests    uint32
 }
 
 func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error {
@@ -55,13 +60,19 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 		p.Logger.Infof("Kafka param %s: %v", k, v)
 	}
 	p.Producer, err = kafka.NewProducer(kafkaParams)
+	if err != nil {
+		p.Logger.Errorf("Could not create producer due to: %v", err)
+	}
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
-		MaxRequests:   1,
-		Interval:      0,
-		Timeout:       0,
+		MaxRequests:   p.Config.CBMaxRequests,
+		Timeout:       p.Config.CBTimeout,
+		Interval:      p.Config.CBInterval,
 		OnStateChange: p.setCBState,
+		ReadyToTrip:   p.readyToTrip,
 	}
+	libint, libstring := kafka.LibraryVersion()
+	libVersion.WithLabelValues(libstring).Set(float64(libint))
 	p.cb = gobreaker.NewTwoStepCircuitBreaker(cbSettings)
 	p.mutex = new(sync.RWMutex)
 	p.resendMutex = new(sync.Mutex)
@@ -75,8 +86,10 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	registerMetrics(prom)
 	p.Logger.Info("Starting up kafka events tracker")
 	go p.producerEventsHander()
-	p.Logger.Infof("Starting up kafka resend process with period %s", p.Config.ResendPeriod.String())
-	go p.ReSend()
+	if p.Config.ResendPeriod != 0 {
+		p.Logger.Infof("Starting up kafka resend process with period %s", p.Config.ResendPeriod.String())
+		go p.ReSend()
+	}
 	// monitor CB state every 10 seconds
 	go p.trackCBState(10 * time.Second)
 	go p.kafkaStats(30 * time.Second)
@@ -88,6 +101,10 @@ func (p *T) ReSend() {
 	var recordLimit int64
 
 	for range ticker.C {
+		if p.inShutdown {
+			p.Logger.Warn("we are shutting down, no need to retry at the moment, exiting the loop")
+			return
+		}
 		switch p.cb.State() {
 		// default limit is no limit
 		case gobreaker.StateOpen:
@@ -116,6 +133,9 @@ func (p *T) iterateLimit(limit int64) {
 	iter := p.wal.Iterator()
 	defer iter.Release()
 	for iter.Next() {
+		if p.inShutdown {
+			return
+		}
 		c++
 		if limit == 0 || c <= limit {
 			key := iter.Key()
@@ -132,7 +152,9 @@ func (p *T) iterateLimit(limit int64) {
 			if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
 				if p.cb.State() != gobreaker.StateOpen {
 					p.rl.Take()
-					p.produce(r.Topic, r.Payload, FromWAL)
+					if !p.inShutdown {
+						p.produce(r.Topic, r.Payload, FromWAL)
+					}
 				} else {
 					p.Logger.Infof("We have got state change during retry, current state is %v, abort retry", p.cb.State())
 					return
@@ -191,7 +213,7 @@ func (p *T) producerEventsHander() {
 					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
 				} else {
 					// we could put the message into some malformed topic or similar
-					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					crc := wal.Uint32ToBytes(wal.CrcSum(m.Value))
 					p.Logger.Infof("Dropped message CRC: %s as we can't retry it due to: %s", string(crc), m.TopicPartition.Error.Error())
 					p.wal.Del(crc)
 					msgDropped.With(prometheus.Labels{
@@ -206,7 +228,7 @@ func (p *T) producerEventsHander() {
 			} else {
 				msgOK.With(prometheus.Labels{"topic": *m.TopicPartition.Topic}).Inc()
 				if m.Opaque == FromWAL || p.isAlwaysWal(*m.TopicPartition.Topic) {
-					crc := wal.Uint32ToBytes(uint32(wal.CrcSum(m.Value)))
+					crc := wal.Uint32ToBytes(wal.CrcSum(m.Value))
 					p.Logger.Debugf("removing CRC: %s", string(crc))
 					p.wal.Del(crc)
 				}
@@ -216,7 +238,14 @@ func (p *T) producerEventsHander() {
 				}
 				success(true)
 			}
+		case kafka.Error:
+			p.Logger.Warnf("%v", ev)
+			if ev.Code() == kafka.ErrAllBrokersDown {
+				p.Logger.Warn("All brokers are down, forcing Circuit Breaker open")
+				p.cbOpen()
+			}
 		default:
+			p.Logger.Warnf("Ignored message: %v", ev)
 			eventIgnored.Inc()
 		}
 	}
@@ -224,7 +253,7 @@ func (p *T) producerEventsHander() {
 func (p *T) isAlwaysWal(topic string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	for i, _ := range p.Config.AlwaysWalTopics {
+	for i := range p.Config.AlwaysWalTopics {
 		if p.Config.AlwaysWalTopics[i] == topic {
 			return true
 		}
@@ -243,37 +272,12 @@ func (p *T) isDisableWal(topic string) bool {
 	return false
 }
 
-func (p *T) setCBState(name string, from, to gobreaker.State) {
-	switch to {
-	case gobreaker.StateClosed:
-		cbState.With(prometheus.Labels{"name": name, "state": "closed"}).Inc()
-	case gobreaker.StateHalfOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "half"}).Inc()
-	case gobreaker.StateOpen:
-		cbState.With(prometheus.Labels{"name": name, "state": "open"}).Inc()
-	}
-}
-
-func (p *T) trackCBState(period time.Duration) {
-	ticker := time.NewTicker(p.Config.ResendPeriod)
-
-	for _ = range ticker.C {
-		switch s := p.cb.State(); s {
-		case gobreaker.StateClosed:
-			cbCurrentState.Set(0)
-		case gobreaker.StateHalfOpen:
-			cbCurrentState.Set(0.5)
-		case gobreaker.StateOpen:
-			cbCurrentState.Set(1)
-		}
-	}
-}
-
 func (p *T) kafkaStats(period time.Duration) {
-	ticker := time.NewTicker(p.Config.ResendPeriod)
-
-	for _ = range ticker.C {
-		producerQueueLen.Set(float64(p.Producer.Len()))
+	if p.Config.ResendPeriod != 0 {
+		ticker := time.NewTicker(p.Config.ResendPeriod)
+		for range ticker.C {
+			producerQueueLen.Set(float64(p.Producer.Len()))
+		}
 	}
 }
 
@@ -292,8 +296,10 @@ func canRetry(err error) bool {
 
 func (p *T) QueueIsEmpty() bool {
 	p.Logger.Infof("Messages in queue: %d", *p.transit)
-	if *p.transit <= 0 {
-		return true
-	}
-	return false
+	return *p.transit <= 0
+}
+
+func (p *T) Shutdown() {
+	p.Logger.Warn("Got shutdown signal, entering lame duck mode")
+	p.inShutdown = true
 }

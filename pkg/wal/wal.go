@@ -25,6 +25,7 @@ type I interface {
 	Iterate(int64) chan *pb.Record
 	Iterator() iterator.Iterator
 	SetRecord(string, []byte) error
+	Messages() int64
 }
 type Wal struct {
 	logger  logger.Logger
@@ -119,14 +120,17 @@ func (w *Wal) CompactAll() error {
 	}
 	return w.storage.CompactRange(r)
 }
-
-func (w *Wal) setWALMessages() {
+func (w *Wal) Messages() (cnt int64) {
 	iter := w.storage.NewIterator(nil, nil)
-	cnt := 0
+	defer iter.Release()
 	for iter.Next() {
 		cnt++
 	}
-	iter.Release()
+	return cnt
+}
+
+func (w *Wal) setWALMessages() {
+	cnt := w.Messages()
 	walMessages.Set(float64(cnt))
 }
 

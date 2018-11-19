@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/config"
+	"github.com/anchorfree/kafka-ambassador/pkg/kafka"
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/servers"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
-	defaults map[string]interface{} = map[string]interface{}{
+	defaults = map[string]interface{}{
 		"global.log.level":            "info",
 		"global.log.encoding":         "json",
 		"global.log.outputPaths":      ("stdout"),
@@ -65,18 +66,19 @@ func main() {
 	s.Prometheus = prometheus.NewRegistry()
 
 	// servers
-	kafkaParams, err := config.KafkaParams(s.Config)
+	kafkaParams, err := kafka.Viper2Config(s.Config)
 	if err != nil {
 		return
 	}
 	s.Producer.Logger = s.Logger
-	s.Producer.Config = config.ProducerConfig(s.Config)
+	s.Producer.Config = kafka.ProducerConfig(s.Config)
 	s.Producer.Init(&kafkaParams, s.Prometheus)
 	s.Start()
 	signal := <-sig
 	switch signal {
 	case syscall.SIGTERM, syscall.SIGINT:
 		s.Stop()
+		s.Producer.Shutdown()
 		for {
 			if !s.Producer.QueueIsEmpty() {
 				s.Logger.Info("We still have messages in queue, waiting")
