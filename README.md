@@ -65,23 +65,24 @@ kafka:
 
 ### configuration reference table
 
-| Parameter                   | Default value         | Description                                                                                                                              |
-| --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| server.http.listen          | NA                    | address to listen to for HTTP interface                                                                                                  |
-| server.grpc.listen          | NA                    | address to listen to for gRPC interface                                                                                                  |
-| server.monitoring.listen    | NA                    | address for Prometheus exporter under /metrics, the same address is used for profiling.                                                  |
-| producer.cb.interval        | 0                     | Zero counters of failures and successes every N duration. 0 means disable.                                                               |
-| producer.cb.timeout         | 20s                   | Switch to Half-Open after N seconds in Open state.                                                                                       |
-| producer.cb.fails           | 5                     | Switch to Open from Closed state if there was N consecutive errors.                                                                      |
-| producer.cb.requests        | 3                     | Consecutive successes to switch to Closed state.                                                                                         |
-| producer.resend.period      | 33s                   | Initiate resend from WAL every N duration. In case current state is Open - resend will be skipped.                                       |
-| producer.resend.rate_limit  | 10000                 | Rate limit WAL reads.                                                                                                                    |
-| producer.wal.always_topics  | []                    | Topics to use WAL even before sending to Kafka. Keep in mind, it slows down the response latency.                                        |
-| producer.wal.disable_topics | []                    | Topics to skip WAL even for fallback. e.g. you rely on message order.                                                                    |
-| producer.wal.path           | ""                    | Path to store WAL files.                                                                                                                 |
-| producer.wal.mode           | fallback              | Possible options: fallback (write to buffer only in case of failure), always (write to wal for all messages), disable (don't use buffer) |
-| kafka.brokers               | []                    |                                                                                                                                          |
-| kafka.*                     | depends on librdkafka | https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md                                                                      |
+| Parameter                           | Default value         | Description                                                                                                                              |
+| ----------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| server.http.listen                  | NA                    | address to listen to for HTTP interface                                                                                                  |
+| server.grpc.listen                  | NA                    | address to listen to for gRPC interface                                                                                                  |
+| server.monitoring.listen            | NA                    | address for Prometheus exporter under /metrics, the same address is used for profiling.                                                  |
+| producer.cb.interval                | 0                     | Zero counters of failures and successes every N duration. 0 means disable.                                                               |
+| producer.cb.timeout                 | 20s                   | Switch to Half-Open after N seconds in Open state.                                                                                       |
+| producer.cb.fails                   | 5                     | Switch to Open from Closed state if there was N consecutive errors.                                                                      |
+| producer.cb.requests                | 3                     | Consecutive successes to switch to Closed state.                                                                                         |
+| producer.resend.period              | 33s                   | Initiate resend from WAL every N duration. In case current state is Open - resend will be skipped.                                       |
+| producer.resend.rate_limit          | 10000                 | Rate limit WAL reads.                                                                                                                    |
+| producer.wal.always_topics          | []                    | Topics to use WAL even before sending to Kafka. Keep in mind, it slows down the response latency.                                        |
+| producer.wal.disable_topics         | []                    | Topics to skip WAL even for fallback. e.g. you rely on message order.                                                                    |
+| producer.wal.path                   | ""                    | Path to store WAL files.                                                                                                                 |
+| producer.wal.mode                   | fallback              | Possible options: fallback (write to buffer only in case of failure), always (write to wal for all messages), disable (don't use buffer) |
+| producer.old_producer_kill_timeout  | 10m                   | Time before old producer gets hard shutdown no mater there are still messages in queue                                                   |
+| kafka.brokers                       | []                    |                                                                                                                                          |
+| kafka.*                             | depends on librdkafka | https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md                                                                      |
 
 ## Run
 

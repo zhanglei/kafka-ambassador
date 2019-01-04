@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,42 +28,162 @@ const (
 	Direct
 )
 
+type ProducerWrapper struct {
+	Producer *kafka.Producer
+	Transit  int64
+	ID       uint
+}
+
+type EventWrapper struct {
+	Event    kafka.Event
+	Producer *ProducerWrapper
+}
+
 type T struct {
-	Producer    *kafka.Producer
-	Logger      logger.Logger
-	Config      *Config
-	wal         wal.I
-	mutex       *sync.RWMutex
-	resendMutex *sync.Mutex
-	cb          *gobreaker.TwoStepCircuitBreaker
-	rl          ratelimit.Limiter
-	transit     *int64
-	inShutdown  bool
+	producers        map[uint]*ProducerWrapper
+	ActiveProducerID uint
+	Logger           logger.Logger
+	Config           *Config
+	wal              wal.I
+	mutex            *sync.RWMutex
+	producerMutex    *sync.RWMutex
+	producerWg       sync.WaitGroup
+	resendMutex      *sync.Mutex
+	cb               *gobreaker.TwoStepCircuitBreaker
+	rl               ratelimit.Limiter
+	inShutdown       bool
+	events           chan EventWrapper
 }
 
 type Config struct {
-	ResendPeriod     time.Duration
-	WalMode          Mode
-	AlwaysWalTopics  []string
-	DisableWalTopics []string
-	WalDirectory     string
-	ResendRateLimit  int
-	CBTimeout        time.Duration
-	CBInterval       time.Duration
-	CBMaxFailures    uint32
-	CBMaxRequests    uint32
+	ResendPeriod           time.Duration
+	OldProducerKillTimeout time.Duration
+	WalMode                Mode
+	AlwaysWalTopics        []string
+	DisableWalTopics       []string
+	WalDirectory           string
+	ResendRateLimit        int
+	CBTimeout              time.Duration
+	CBInterval             time.Duration
+	CBMaxFailures          uint32
+	CBMaxRequests          uint32
+}
+
+func (p *T) GetProducer() *ProducerWrapper {
+	p.producerMutex.RLock()
+	defer p.producerMutex.RUnlock()
+	return p.producers[p.ActiveProducerID]
+}
+
+func (p *T) GenerateProducerID() uint {
+	if p.ActiveProducerID >= ^uint(0) {
+		return 0
+	}
+	return p.ActiveProducerID + 1
+}
+
+func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
+	kp, err := kafka.NewProducer(kafkaParams)
+	if err != nil {
+		p.Logger.Errorf("Could not create producer due to: %v", err)
+		return err
+	}
+	if p.producers == nil {
+		p.producers = map[uint]*ProducerWrapper{}
+	}
+	p.producerMutex.Lock()
+	previousActiveID := p.ActiveProducerID
+	pid := p.GenerateProducerID()
+	p.ActiveProducerID = pid
+	pw := ProducerWrapper{
+		Producer: kp,
+		ID:       pid,
+		Transit:  int64(0),
+	}
+	p.producers[p.ActiveProducerID] = &pw
+	p.producerWg.Add(1)
+	go func(pwLink *ProducerWrapper) {
+		p.Logger.Infof("Running events pass routine for the new lead producer")
+		for event := range pwLink.Producer.Events() {
+			p.events <- EventWrapper{Event: event, Producer: pwLink}
+		}
+		p.producerWg.Done()
+	}(&pw)
+	p.producerMutex.Unlock()
+	activeProducer.With(prometheus.Labels{
+		"producer_id": strconv.FormatUint(uint64(pid), 10),
+	}).Set(1)
+	lastProducerStartTime.Set(float64(time.Now().Unix()))
+	if KafkaParamsPathExists(kafkaParams, "ssl.certificate.location") {
+		certET, err := ParamsCertExpirationTime(kafkaParams, "ssl.certificate.location")
+		if err == nil {
+			metricCertExpirationTime.Set(float64(certET.Unix()))
+		}
+	}
+	if KafkaParamsPathExists(kafkaParams, "ssl.ca.location") {
+		caET, err := ParamsCertExpirationTime(kafkaParams, "ssl.ca.location")
+		if err == nil {
+			metricCaExpirationTime.Set(float64(caET.Unix()))
+		}
+	}
+	if len(p.producers) > 1 {
+		//shut down former lead producer when it has no messages in transit
+		if oldPW, ok := p.producers[previousActiveID]; ok {
+			activeProducer.With(prometheus.Labels{
+				"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
+			}).Set(0)
+			go func() {
+				firstAttemptTime := time.Now()
+				for {
+					if oldPW.Transit > 0 && time.Since(firstAttemptTime) < p.Config.OldProducerKillTimeout {
+						p.Logger.Infof("Old producer #%d still has %d messages in queue. Trying for %s since %s.", previousActiveID, oldPW.Transit, time.Since(firstAttemptTime), firstAttemptTime)
+						time.Sleep(5 * time.Second)
+					} else {
+						break
+					}
+				}
+				p.Logger.Infof("Closing old producer #%d. Messages in queue: %d (time since first attemts: %s, OldProducerKillTimeout: %s)", previousActiveID, oldPW.Transit, time.Since(firstAttemptTime), p.Config.OldProducerKillTimeout)
+				oldPW.Producer.Close()
+				go func() {
+					time.Sleep(10 * time.Minute)
+					msgInTransit.Delete(prometheus.Labels{
+						"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
+					})
+					activeProducer.Delete(prometheus.Labels{
+						"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
+					})
+				}()
+				p.producerMutex.Lock()
+				p.producerMutex.Unlock()
+				if _, stillOk := p.producers[previousActiveID]; stillOk {
+					delete(p.producers, previousActiveID)
+				}
+			}()
+		}
+	}
+	return nil
 }
 
 func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error {
 	var err error
+	p.mutex = new(sync.RWMutex)
+	p.resendMutex = new(sync.Mutex)
+	p.producerMutex = new(sync.RWMutex)
 	p.Logger.Info("Creating Kafka producer")
+	p.events = make(chan EventWrapper)
 	for k, v := range *kafkaParams {
 		p.Logger.Infof("Kafka param %s: %v", k, v)
 	}
-	p.Producer, err = kafka.NewProducer(kafkaParams)
+	err = p.AddActiveProducer(kafkaParams)
 	if err != nil {
-		p.Logger.Errorf("Could not create producer due to: %v", err)
+		p.Logger.Errorf("Could not create initial kafka producer due to: %v", err)
+		return err
 	}
+	//Close internal Events channel when all producers get closed
+	go func() {
+		p.producerWg.Wait()
+		close(p.events)
+	}()
 	cbSettings := gobreaker.Settings{
 		Name:          "kafka",
 		MaxRequests:   p.Config.CBMaxRequests,
@@ -74,18 +195,15 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	libint, libstring := kafka.LibraryVersion()
 	libVersion.WithLabelValues(libstring).Set(float64(libint))
 	p.cb = gobreaker.NewTwoStepCircuitBreaker(cbSettings)
-	p.mutex = new(sync.RWMutex)
-	p.resendMutex = new(sync.Mutex)
 	p.wal, err = wal.New(p.Config.WalDirectory, prom, p.Logger)
-	p.rl = ratelimit.New(p.Config.ResendRateLimit)
-	p.transit = new(int64)
 	if err != nil {
-		p.Logger.Errorf("Could not create kafka producer due to: %v", err)
+		p.Logger.Errorf("Could not initialize WAL due to: %v", err)
 		return err
 	}
+	p.rl = ratelimit.New(p.Config.ResendRateLimit)
 	registerMetrics(prom)
 	p.Logger.Info("Starting up kafka events tracker")
-	go p.producerEventsHander()
+	go p.producerEventsHandler()
 	if p.Config.ResendPeriod != 0 {
 		p.Logger.Infof("Starting up kafka resend process with period %s", p.Config.ResendPeriod.String())
 		go p.ReSend()
@@ -170,7 +288,6 @@ func (p *T) iterateLimit(limit int64) {
 func (p *T) Send(topic string, message []byte) {
 	if p.cb.State() == gobreaker.StateClosed {
 		p.produce(topic, message, Direct)
-		atomic.AddInt64(p.transit, 1)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
 			p.wal.SetRecord(topic, message)
@@ -184,7 +301,8 @@ func (p *T) Send(topic string, message []byte) {
 
 func (p *T) produce(topic string, message []byte, opaque interface{}) {
 	p.Logger.Debugf("Sending to topic: [%s] message %s", topic, string(message))
-	p.Producer.ProduceChannel() <- &kafka.Message{
+	pw := p.GetProducer()
+	pw.Producer.ProduceChannel() <- &kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
 			Partition: kafka.PartitionAny,
@@ -192,17 +310,25 @@ func (p *T) produce(topic string, message []byte, opaque interface{}) {
 		Value:  message,
 		Opaque: opaque,
 	}
-	msgInTransit.Add(1)
+	if v, ok := opaque.(Source); ok && v == Direct {
+		atomic.AddInt64(&(pw.Transit), 1)
+	}
+	msgInTransit.With(prometheus.Labels{
+		"producer_id": strconv.FormatUint(uint64(pw.ID), 10),
+	}).Add(1)
+
 }
 
-func (p *T) producerEventsHander() {
-	for e := range p.Producer.Events() {
-		switch ev := e.(type) {
+func (p *T) producerEventsHandler() {
+	for eventWrap := range p.events {
+		switch ev := eventWrap.Event.(type) {
 		case *kafka.Message:
 			success, err := p.cb.Allow()
 			m := ev
-			atomic.AddInt64(p.transit, -1)
-			msgInTransit.Add(-1)
+			atomic.AddInt64(&(eventWrap.Producer.Transit), -1)
+			msgInTransit.With(prometheus.Labels{
+				"producer_id": strconv.FormatUint(uint64(eventWrap.Producer.ID), 10),
+			}).Add(-1)
 			if m.TopicPartition.Error != nil {
 				msgNOK.With(prometheus.Labels{
 					"topic": *m.TopicPartition.Topic,
@@ -239,13 +365,13 @@ func (p *T) producerEventsHander() {
 				success(true)
 			}
 		case kafka.Error:
-			p.Logger.Warnf("%v", ev)
+			p.Logger.Warnf("%v", eventWrap.Event)
 			if ev.Code() == kafka.ErrAllBrokersDown {
 				p.Logger.Warn("All brokers are down, forcing Circuit Breaker open")
 				p.cbOpen()
 			}
 		default:
-			p.Logger.Warnf("Ignored message: %v", ev)
+			p.Logger.Warnf("Ignored message: %v", eventWrap.Event)
 			eventIgnored.Inc()
 		}
 	}
@@ -276,7 +402,7 @@ func (p *T) kafkaStats(period time.Duration) {
 	if p.Config.ResendPeriod != 0 {
 		ticker := time.NewTicker(p.Config.ResendPeriod)
 		for range ticker.C {
-			producerQueueLen.Set(float64(p.Producer.Len()))
+			producerQueueLen.Set(float64(p.GetProducer().Producer.Len()))
 		}
 	}
 }
@@ -295,8 +421,14 @@ func canRetry(err error) bool {
 }
 
 func (p *T) QueueIsEmpty() bool {
-	p.Logger.Infof("Messages in queue: %d", *p.transit)
-	return *p.transit <= 0
+	allEmpty := true
+	for pid, pw := range p.producers {
+		p.Logger.Infof("Messages in queue #%d (leadProducer: %t): %d", pid, pid == p.ActiveProducerID, pw.Transit)
+		if pw.Transit > 0 {
+			allEmpty = false
+		}
+	}
+	return allEmpty
 }
 
 func (p *T) Shutdown() {

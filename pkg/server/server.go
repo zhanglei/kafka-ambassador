@@ -17,7 +17,7 @@ type I interface {
 }
 
 type T struct {
-	Producer   kafka.T
+	Producer   *kafka.T
 	Logger     logger.Logger
 	Prometheus *prometheus.Registry
 	Config     *viper.Viper
