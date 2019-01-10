@@ -162,10 +162,10 @@ func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
 					})
 				}()
 				p.producerMutex.Lock()
-				p.producerMutex.Unlock()
 				if _, stillOk := p.producers[previousActiveID]; stillOk {
 					delete(p.producers, previousActiveID)
 				}
+				p.producerMutex.Unlock()
 			}()
 		}
 	}
