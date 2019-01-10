@@ -41,7 +41,7 @@ type EventWrapper struct {
 
 type T struct {
 	producers        map[uint]*ProducerWrapper
-	ActiveProducerID uint
+	activeProducerID uint
 	Logger           logger.Logger
 	Config           *Config
 	wal              wal.I
@@ -69,17 +69,25 @@ type Config struct {
 	CBMaxRequests          uint32
 }
 
+func (p *T) GetProducersCount() int {
+	return len(p.producers)
+}
+
+func (p *T) GetActiveProducerID() uint {
+	return p.activeProducerID
+}
+
 func (p *T) GetProducer() *ProducerWrapper {
 	p.producerMutex.RLock()
 	defer p.producerMutex.RUnlock()
-	return p.producers[p.ActiveProducerID]
+	return p.producers[p.GetActiveProducerID()]
 }
 
 func (p *T) GenerateProducerID() uint {
-	if p.ActiveProducerID >= ^uint(0) {
+	if p.GetActiveProducerID() >= ^uint(0) {
 		return 0
 	}
-	return p.ActiveProducerID + 1
+	return p.GetActiveProducerID() + 1
 }
 
 func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
@@ -92,15 +100,15 @@ func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
 		p.producers = map[uint]*ProducerWrapper{}
 	}
 	p.producerMutex.Lock()
-	previousActiveID := p.ActiveProducerID
+	previousActiveID := p.activeProducerID
 	pid := p.GenerateProducerID()
-	p.ActiveProducerID = pid
+	p.activeProducerID = pid
 	pw := ProducerWrapper{
 		Producer: kp,
 		ID:       pid,
 		Transit:  int64(0),
 	}
-	p.producers[p.ActiveProducerID] = &pw
+	p.producers[p.activeProducerID] = &pw
 	p.producerWg.Add(1)
 	go func(pwLink *ProducerWrapper) {
 		p.Logger.Infof("Running events pass routine for the new lead producer")
@@ -423,7 +431,7 @@ func canRetry(err error) bool {
 func (p *T) QueueIsEmpty() bool {
 	allEmpty := true
 	for pid, pw := range p.producers {
-		p.Logger.Infof("Messages in queue #%d (leadProducer: %t): %d", pid, pid == p.ActiveProducerID, pw.Transit)
+		p.Logger.Infof("Messages in queue #%d (leadProducer: %t): %d", pid, pid == p.GetActiveProducerID(), pw.Transit)
 		if pw.Transit > 0 {
 			allEmpty = false
 		}
