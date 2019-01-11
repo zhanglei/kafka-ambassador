@@ -126,12 +126,16 @@ func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
 		certET, err := ParamsCertExpirationTime(kafkaParams, "ssl.certificate.location")
 		if err == nil {
 			metricCertExpirationTime.Set(float64(certET.Unix()))
+		} else {
+			metricCertExpirationTime.Set(float64(0))
 		}
 	}
 	if KafkaParamsPathExists(kafkaParams, "ssl.ca.location") {
 		caET, err := ParamsCertExpirationTime(kafkaParams, "ssl.ca.location")
 		if err == nil {
 			metricCaExpirationTime.Set(float64(caET.Unix()))
+		} else {
+			metricCaExpirationTime.Set(float64(0))
 		}
 	}
 	if len(p.producers) > 1 {
