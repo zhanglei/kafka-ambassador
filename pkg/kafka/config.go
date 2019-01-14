@@ -10,12 +10,13 @@ import (
 
 var (
 	defaults = map[string]interface{}{
-		"producer.cb.interval":       "0",     // 0 is disable counters flush
-		"producer.cb.timeout":        "20s",   // put CB into half open evry timeout
-		"producer.cb.fails":          "5",     // open CB if fails reached
-		"producer.cb.requests":       "3",     // send requests during retry
-		"producer.resend.period":     "33s",   // resend from WAL every
-		"producer.resend.rate_limit": "10000", // limit rate from WAL
+		"producer.cb.interval":               "0",     // 0 is disable counters flush
+		"producer.cb.timeout":                "20s",   // put CB into half open evry timeout
+		"producer.cb.fails":                  "5",     // open CB if fails reached
+		"producer.cb.requests":               "3",     // send requests during retry
+		"producer.resend.period":             "33s",   // resend from WAL every
+		"producer.resend.rate_limit":         "10000", // limit rate from WAL
+		"producer.old_producer_kill_timeout": "10m",   // limit rate from WAL
 	}
 )
 
@@ -35,6 +36,7 @@ func ProducerConfig(c *viper.Viper) *Config {
 	p.AlwaysWalTopics = c.GetStringSlice("producer.wal.always_topics")
 	p.DisableWalTopics = c.GetStringSlice("producer.wal.disable_topics")
 	p.WalDirectory = c.GetString("producer.wal.path")
+	p.OldProducerKillTimeout = c.GetDuration("producer.old_producer_kill_timeout")
 	switch mode := c.GetString("producer.wal.mode"); mode {
 	case "fallback":
 		p.WalMode = Fallback
@@ -80,4 +82,15 @@ func Viper2Config(c *viper.Viper) (kafka.ConfigMap, error) {
 		delete(cm, k)
 	}
 	return cm, nil
+}
+
+func KafkaParamsPathExists(kafkaParams *kafka.ConfigMap, path string) bool {
+	value, err := kafkaParams.Get(path, "")
+	if err != nil {
+		return false
+	}
+	if value != nil && len(value.(string)) > 0 {
+		return true
+	}
+	return false
 }

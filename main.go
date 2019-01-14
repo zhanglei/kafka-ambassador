@@ -44,13 +44,14 @@ func main() {
 
 	// We need to shut down gracefully when the user hits Ctrl-C.
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGTERM)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGTERM, syscall.SIGHUP)
 
 	s := new(servers.T)
 	c := &config.T{
 		Filename:  configPathName,
 		EnvPrefix: "ka",
 	}
+	s.Producer = &kafka.T{}
 	s.Config, err = c.ReadConfig(defaults)
 	if err != nil {
 		return
@@ -74,19 +75,25 @@ func main() {
 	s.Producer.Config = kafka.ProducerConfig(s.Config)
 	s.Producer.Init(&kafkaParams, s.Prometheus)
 	s.Start()
-	signal := <-sig
-	switch signal {
-	case syscall.SIGTERM, syscall.SIGINT:
-		s.Stop()
-		s.Producer.Shutdown()
-		for {
-			if !s.Producer.QueueIsEmpty() {
-				s.Logger.Info("We still have messages in queue, waiting")
-				time.Sleep(5 * time.Second)
-			} else {
-				s.Logger.Info("Queue is empty, shut down properly")
-				s.Producer.Producer.Close()
-				break
+	for {
+		signal := <-sig
+		switch signal {
+		case syscall.SIGHUP:
+			s.Logger.Info("Got SIGHUP: setting up new Kafka producer")
+			s.Producer.AddActiveProducer(&kafkaParams)
+			s.Producer.GetProducer()
+		case syscall.SIGTERM, syscall.SIGINT:
+			s.Stop()
+			s.Producer.Shutdown()
+			for {
+				if !s.Producer.QueueIsEmpty() {
+					s.Logger.Info("We still have messages in queue, waiting")
+					time.Sleep(5 * time.Second)
+				} else {
+					s.Logger.Info("Queue is empty, shut down properly")
+					s.Producer.GetProducer().Producer.Close()
+					return
+				}
 			}
 		}
 	}

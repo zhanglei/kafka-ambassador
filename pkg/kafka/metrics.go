@@ -26,11 +26,12 @@ var (
 		},
 		[]string{"topic", "error"},
 	)
-	msgInTransit = prometheus.NewGauge(
+	msgInTransit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "kafka_client_messages_in_transit",
 			Help: "Number of kafka messages in transit",
 		},
+		[]string{"producer_id"},
 	)
 	msgDropped = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -71,6 +72,31 @@ var (
 		},
 		[]string{"version"},
 	)
+	activeProducer = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_active_producer",
+			Help: "Current active producer",
+		},
+		[]string{"producer_id"},
+	)
+	lastProducerStartTime = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_last_producer_start_time",
+			Help: "Time when the freshest producer was started",
+		},
+	)
+	metricCertExpirationTime = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_cert_expiration_time",
+			Help: "Kafka producer certificat NotAfter",
+		},
+	)
+	metricCaExpirationTime = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_ca_expiration_time",
+			Help: "Kafka producer CA NotAfter",
+		},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {
@@ -84,5 +110,9 @@ func registerMetrics(prom *prometheus.Registry) {
 		eventIgnored,
 		msgInTransit,
 		libVersion,
+		activeProducer,
+		lastProducerStartTime,
+		metricCertExpirationTime,
+		metricCaExpirationTime,
 	)
 }

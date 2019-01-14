@@ -8,8 +8,9 @@ RUN echo "deb http://deb.debian.org/debian sid main" >> /etc/apt/sources.list \
 ENV BASE_DIR /go/src/github.com/anchorfree/kafka-ambassador
 
 ADD . ${BASE_DIR}
-RUN cd ${BASE_DIR} && go build -o /go/bin/kaffka-ambassador
-
+RUN cd ${BASE_DIR} \
+    && go test ./... \
+    && go build -o /go/bin/kaffka-ambassador
 
 FROM ubuntu:16.04
 COPY --from=0 /go/bin/kaffka-ambassador /bin/kafka-ambassador
