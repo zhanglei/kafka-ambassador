@@ -97,6 +97,12 @@ var (
 			Help: "Kafka producer CA NotAfter",
 		},
 	)
+	metricKafkaEventsQueueLen = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "kafka_events_queue_len",
+			Help: "Kafka driver events queue length",
+		},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {

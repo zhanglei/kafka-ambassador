@@ -415,6 +415,7 @@ func (p *T) kafkaStats(period time.Duration) {
 		ticker := time.NewTicker(p.Config.ResendPeriod)
 		for range ticker.C {
 			producerQueueLen.Set(float64(p.GetProducer().Producer.Len()))
+			metricKafkaEventsQueueLen.Set(float64(len(p.GetProducer().Producer.Events())))
 		}
 	}
 }
