@@ -120,5 +120,6 @@ func registerMetrics(prom *prometheus.Registry) {
 		lastProducerStartTime,
 		metricCertExpirationTime,
 		metricCaExpirationTime,
+		metricKafkaEventsQueueLen,
 	)
 }
