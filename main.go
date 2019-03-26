@@ -11,6 +11,7 @@ import (
 	"github.com/anchorfree/kafka-ambassador/pkg/kafka"
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/servers"
+	ckg "github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -80,8 +81,12 @@ func main() {
 		switch signal {
 		case syscall.SIGHUP:
 			s.Logger.Info("Got SIGHUP: setting up new Kafka producer")
-			s.Producer.AddActiveProducer(&kafkaParams)
-			s.Producer.GetProducer()
+			kp, err := ckg.NewProducer(&kafkaParams)
+			if err != nil {
+				s.Logger.Errorf("ERROR. Could not create producer on SIGHUP due to: %v", err)
+			} else {
+				s.Producer.AddActiveProducer(kp, &kafkaParams)
+			}
 		case syscall.SIGTERM, syscall.SIGINT:
 			s.Stop()
 			s.Producer.Shutdown()
