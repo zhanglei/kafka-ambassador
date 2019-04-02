@@ -3,7 +3,7 @@ server:
   # http:
   #   listen: "0.0.0.0:18080"
   grpc:
-    listen: "0.0.0.0:18282"
+    listen: "0.0.0.0:19094"
   monitoring:
     listen: "0.0.0.0:28080"
 producer:
@@ -17,7 +17,8 @@ producer:
     - test1
 kafka:
     brokers:
-        - "127.0.0.1:9092"
+        - "kafka1.data.afdevops.com:9092" 
+        - "kafka2.data.afdevops.com:9092" 
     # possible configuration parameters are:
     # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
     "compression.codec": "gzip"
@@ -25,3 +26,4 @@ kafka:
     "max.in.flight.requests.per.connection": 20
     "message.timeout.ms": 60000
     "socket.timeout.ms": 10000
+    "linger.ms": 3000

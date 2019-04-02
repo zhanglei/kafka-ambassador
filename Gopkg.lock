@@ -16,8 +16,8 @@
 [[projects]]
   name = "github.com/confluentinc/confluent-kafka-go"
   packages = ["kafka"]
-  revision = "460e8e43b282a1a68219df600ef63442b81faf5f"
-  version = "v0.11.6"
+  revision = "ecccefd9ca31c656bd33471dc0d9293fcf3de99b"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -250,6 +250,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "544e50d098d9833c6a5c5b1b236d14e525c15eadc5c5997e6c9bfb461a8edb33"
+  inputs-digest = "9a4c73df0485a615631b6127188afb7b25b381ef9ffc4fd87b399a4226b8d78a"
   solver-name = "gps-cdcl"
   solver-version = 1
