@@ -74,7 +74,11 @@ func main() {
 	producer := &kafka.T{}
 	producer.Logger = s.Logger
 	producer.Config = kafka.ProducerConfig(s.Config)
-	producer.Init(&kafkaParams, s.Prometheus)
+	err = producer.Init(&kafkaParams, s.Prometheus)
+	if err != nil {
+		s.Logger.Fatal("Could not initialize producer")
+	}
+
 	s.Producer = producer
 	s.Start()
 	for {

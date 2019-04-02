@@ -106,7 +106,6 @@ func (p *T) GenerateProducerID() uint {
 	return p.GetActiveProducerID() + 1
 }
 
-//func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
 func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error {
 	if p.producers == nil {
 		p.producers = map[uint]*ProducerWrapper{}
