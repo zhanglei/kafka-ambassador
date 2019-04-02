@@ -1,6 +1,7 @@
 package grpcserver
 
 import (
+	"context"
 	"io"
 	"net"
 
@@ -82,6 +83,13 @@ func (s *Server) Produce(stream pb.KafkaAmbassador_ProduceServer) error {
 			return err
 		}
 	}
+}
+
+func (s *Server) ListTopics(ctx context.Context, nothing *pb.Empty) (*pb.ListTopicsResponse, error) {
+	ret := &pb.ListTopicsResponse{}
+	topics, err := s.Producer.ListTopics()
+	ret.Topics = topics
+	return ret, err
 }
 
 func (s *Server) Stop() {

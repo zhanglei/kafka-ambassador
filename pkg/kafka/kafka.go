@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,20 @@ import (
 	"github.com/sony/gobreaker"
 	"go.uber.org/ratelimit"
 )
+
+type I interface {
+	GetProducersCount() int
+	GetActiveProducerID() uint
+	GetProducer() *ProducerWrapper
+	GenerateProducerID() uint
+	AddActiveProducer(ProducerI, *kafka.ConfigMap) error
+	Init(*kafka.ConfigMap, *prometheus.Registry) error
+	ReSend()
+	ListTopics() ([]string, error)
+	Send(string, []byte)
+	QueueIsEmpty() bool
+	Shutdown()
+}
 
 type Mode int
 type Source int
@@ -29,7 +44,7 @@ const (
 )
 
 type ProducerWrapper struct {
-	Producer *kafka.Producer
+	Producer ProducerI
 	Transit  int64
 	ID       uint
 }
@@ -67,6 +82,7 @@ type Config struct {
 	CBInterval             time.Duration
 	CBMaxFailures          uint32
 	CBMaxRequests          uint32
+	GetMetadataTimeout     time.Duration
 }
 
 func (p *T) GetProducersCount() int {
@@ -90,12 +106,8 @@ func (p *T) GenerateProducerID() uint {
 	return p.GetActiveProducerID() + 1
 }
 
-func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
-	kp, err := kafka.NewProducer(kafkaParams)
-	if err != nil {
-		p.Logger.Errorf("Could not create producer due to: %v", err)
-		return err
-	}
+//func (p *T) AddActiveProducer(kafkaParams *kafka.ConfigMap) error {
+func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error {
 	if p.producers == nil {
 		p.producers = map[uint]*ProducerWrapper{}
 	}
@@ -186,7 +198,18 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	for k, v := range *kafkaParams {
 		p.Logger.Infof("Kafka param %s: %v", k, v)
 	}
-	err = p.AddActiveProducer(kafkaParams)
+	if p.GetProducersCount() == 0 {
+		kp, err := kafka.NewProducer(kafkaParams)
+		if err != nil {
+			p.Logger.Errorf("Could not create producer due to: %v", err)
+			return err
+		}
+		err = p.AddActiveProducer(kp, kafkaParams)
+		if err != nil {
+			p.Logger.Error("Could not add active producer")
+			return err
+		}
+	}
 	if err != nil {
 		p.Logger.Errorf("Could not create initial kafka producer due to: %v", err)
 		return err
@@ -295,6 +318,21 @@ func (p *T) iterateLimit(limit int64) {
 			return
 		}
 	}
+}
+
+func (p *T) ListTopics() ([]string, error) {
+	var ret []string
+	pw := p.GetProducer()
+	md, err := pw.Producer.GetMetadata(nil, true, int(p.Config.GetMetadataTimeout.Nanoseconds()/1000000))
+	if err != nil {
+		return ret, err
+	}
+	for t, _ := range md.Topics {
+		if !strings.HasPrefix(t, "__") {
+			ret = append(ret, t)
+		}
+	}
+	return ret, err
 }
 
 func (p *T) Send(topic string, message []byte) {
