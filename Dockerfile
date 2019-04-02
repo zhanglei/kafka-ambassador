@@ -18,7 +18,6 @@ RUN cd ${BASE_DIR} \
 FROM ubuntu:16.04
 COPY --from=0 /go/bin/kaffka-ambassador /bin/kafka-ambassador
 RUN apt-get update && apt-get install -y wget software-properties-common python-software-properties
-#RUN apt-get update && apt-get install -y wget
 RUN wget -qO - https://packages.confluent.io/deb/5.2/archive.key | apt-key add -
 RUN add-apt-repository "deb [arch=amd64] https://packages.confluent.io/deb/5.2 stable main"
 RUN apt-get install -y apt-transport-https
