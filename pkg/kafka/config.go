@@ -17,6 +17,7 @@ var (
 		"producer.resend.period":             "33s",   // resend from WAL every
 		"producer.resend.rate_limit":         "10000", // limit rate from WAL
 		"producer.old_producer_kill_timeout": "10m",   // limit rate from WAL
+		"producer.get_metadata_timeout":      "5s",    // timeout when pulling topic list
 	}
 )
 
@@ -37,6 +38,7 @@ func ProducerConfig(c *viper.Viper) *Config {
 	p.DisableWalTopics = c.GetStringSlice("producer.wal.disable_topics")
 	p.WalDirectory = c.GetString("producer.wal.path")
 	p.OldProducerKillTimeout = c.GetDuration("producer.old_producer_kill_timeout")
+	p.GetMetadataTimeout = c.GetDuration("producer.get_metadata_timeout")
 	switch mode := c.GetString("producer.wal.mode"); mode {
 	case "fallback":
 		p.WalMode = Fallback

@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anchorfree/kafka-ambassador/pkg/server"
@@ -23,10 +24,15 @@ const (
 
 type Server server.T
 
-func (s *Server) Start(configPath string) {
+func (s *Server) getRouter() http.Handler {
 	r := mux.NewRouter()
 	r.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), s.messageHandler)
+	r.HandleFunc("/topics", s.topicsHandler).Methods("GET")
+	return r
+}
 
+func (s *Server) Start(configPath string) {
+	r := s.getRouter()
 	c := s.Config.Sub(configPath)
 	addr := c.GetString("listen")
 	httpServer := &http.Server{
@@ -35,9 +41,11 @@ func (s *Server) Start(configPath string) {
 	}
 
 	go func() {
+		s.Logger.Infof("Listening for HTTP requests on %s", addr)
 		err := httpServer.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			s.Logger.Errorf("Unable to start http server: %v", err)
+		} else {
 		}
 	}()
 
@@ -85,6 +93,16 @@ func readMsg(r *http.Request) ([]byte, error) {
 		return msg, nil
 	}
 	return nil, errors.Errorf("unsupported content type %s", contentType)
+}
+
+func (s *Server) topicsHandler(w http.ResponseWriter, r *http.Request) {
+	s.Logger.Infof("Pulling TOPICS")
+	topics, err := s.Producer.ListTopics()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprint(w, strings.Join(topics, "\n"))
 }
 
 func (s *Server) Stop() {

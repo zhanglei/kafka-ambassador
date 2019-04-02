@@ -52,7 +52,6 @@ func main() {
 		Filename:  configPathName,
 		EnvPrefix: "ka",
 	}
-	s.Producer = &kafka.T{}
 	s.Config, err = c.ReadConfig(defaults)
 	if err != nil {
 		return
@@ -72,9 +71,11 @@ func main() {
 	if err != nil {
 		return
 	}
-	s.Producer.Logger = s.Logger
-	s.Producer.Config = kafka.ProducerConfig(s.Config)
-	s.Producer.Init(&kafkaParams, s.Prometheus)
+	producer := &kafka.T{}
+	producer.Logger = s.Logger
+	producer.Config = kafka.ProducerConfig(s.Config)
+	producer.Init(&kafkaParams, s.Prometheus)
+	s.Producer = producer
 	s.Start()
 	for {
 		signal := <-sig

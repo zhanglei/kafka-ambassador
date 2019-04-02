@@ -65,14 +65,14 @@ var (
 			Help: "Amount of alive iterators over leveldb",
 		},
 	)
-	ldbStatsIOWrite = prometheus.NewCounter(
-		prometheus.CounterOpts{
+	ldbStatsIOWrite = prometheus.NewGauge(
+		prometheus.GaugeOpts{
 			Name: "wal_leveldb_io_write",
 			Help: "IO stats for write operation",
 		},
 	)
-	ldbStatsIORead = prometheus.NewCounter(
-		prometheus.CounterOpts{
+	ldbStatsIORead = prometheus.NewGauge(
+		prometheus.GaugeOpts{
 			Name: "wal_leveldb_io_read",
 			Help: "IO stats for read operations",
 		},

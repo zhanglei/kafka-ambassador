@@ -15,6 +15,20 @@ import (
 	"go.uber.org/ratelimit"
 )
 
+type I interface {
+	GetProducersCount() int
+	GetActiveProducerID() uint
+	GetProducer() *ProducerWrapper
+	GenerateProducerID() uint
+	AddActiveProducer(ProducerI, *kafka.ConfigMap) error
+	Init(*kafka.ConfigMap, *prometheus.Registry) error
+	ReSend()
+	ListTopics() ([]string, error)
+	Send(string, []byte)
+	QueueIsEmpty() bool
+	Shutdown()
+}
+
 type Mode int
 type Source int
 
