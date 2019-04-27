@@ -394,6 +394,8 @@ func (p *T) producerEventsHandler() {
 					msgDropped.With(prometheus.Labels{
 						"topic": *m.TopicPartition.Topic,
 						"error": m.TopicPartition.Error.Error()}).Inc()
+					//skip success(false) as non-retryable message should be just filtered out
+					break
 				}
 				if err != nil {
 					// We are not allowed to do anything
