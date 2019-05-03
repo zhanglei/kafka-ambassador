@@ -1,25 +1,53 @@
-FROM golang:1.12
+# Build stage
+FROM golang:1.12.4 AS builder
 
+# install libssl
+RUN curl -L http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u11_amd64.deb -o libssl.deb \
+ && dpkg -i libssl.deb
 
 # install rdkafka
-RUN wget http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u11_amd64.deb -O libssl.deb \
-    && dpkg -i libssl.deb
-RUN wget -qO - https://packages.confluent.io/deb/5.2/archive.key | apt-key add -
-RUN echo "deb [arch=amd64] http://packages.confluent.io/deb/5.2 stable main" >> /etc/apt/sources.list \
-    && apt-get update && apt-get install -y librdkafka1 librdkafka-dev
+RUN curl -L https://packages.confluent.io/deb/5.2/archive.key | apt-key add - \
+ && echo "deb [arch=amd64] http://packages.confluent.io/deb/5.2 stable main" >> /etc/apt/sources.list \
+ && apt-get update \
+ && apt-get install -y \
+    librdkafka1 \
+    librdkafka-dev \
+ && rm -rf /var/lib/apt/lists/*
 
-ENV BASE_DIR /go/src/github.com/anchorfree/kafka-ambassador
+# Enable support of go modules by default
+ENV GO111MODULE on
+ENV BASE_DIR /go/src/kafka-ambassador
 
-ADD . ${BASE_DIR}
-RUN cd ${BASE_DIR} \
-    && go test ./... \
-    && go build -o /go/bin/kaffka-ambassador
+# Warming modules cache with project dependencies
+WORKDIR ${BASE_DIR}
+COPY go.mod go.sum ./
+RUN go mod download
 
+# Copy project source code to WORKDIR
+COPY . .
+
+# Run tests and build on success
+RUN go test ./... \
+ && go build -o /go/bin/kaffka-ambassador
+
+
+# Final container stage
 FROM ubuntu:16.04
-COPY --from=0 /go/bin/kaffka-ambassador /bin/kafka-ambassador
-RUN apt-get update && apt-get install -y wget software-properties-common python-software-properties
-RUN wget -qO - https://packages.confluent.io/deb/5.2/archive.key | apt-key add -
-RUN add-apt-repository "deb [arch=amd64] https://packages.confluent.io/deb/5.2 stable main"
-RUN apt-get install -y apt-transport-https
-RUN apt-get update
-RUN apt install -y librdkafka1 librdkafka-dev
+
+# install rdkafka
+RUN apt-get update \
+ && apt-get install -y \
+    curl \
+    software-properties-common \
+    python-software-properties \
+ && curl -L https://packages.confluent.io/deb/5.2/archive.key | apt-key add - \
+ && add-apt-repository "deb [arch=amd64] https://packages.confluent.io/deb/5.2 stable main" \
+ && apt-get install -y \
+    apt-transport-https \
+ && apt-get update \
+ && apt install -y \
+    librdkafka1 \
+    librdkafka-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /go/bin/kaffka-ambassador /bin/kafka-ambassador
