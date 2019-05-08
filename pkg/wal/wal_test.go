@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"hash/crc32"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/storage"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
@@ -89,4 +91,48 @@ func TestWALIterator(t *testing.T) {
 	assert.Equal([]byte("key4"), key)
 	assert.Equal([]byte("val4"), val)
 	iter.Release()
+}
+
+func getTimeString() string {
+	now := time.Now()
+	t := now.UnixNano()
+	return fmt.Sprintf("%d", t)
+}
+
+func BenchmarkSetSingle(b *testing.B) {
+	s := storage.NewMemStorage()
+	db, _ := leveldb.Open(s, nil)
+	for n := 0; n < b.N; n++ {
+		db.Put([]byte(getTimeString()), []byte("value"), nil)
+	}
+	db.Close()
+}
+
+func BenchmarkSetWithOptions(b *testing.B) {
+	s := storage.NewMemStorage()
+	dbOpts := &opt.Options{
+		NoWriteMerge: true,
+		Compression:  opt.NoCompression,
+	}
+	db, _ := leveldb.Open(s, dbOpts)
+	for n := 0; n < b.N; n++ {
+		db.Put([]byte(getTimeString()), []byte("value"), nil)
+	}
+	db.Close()
+}
+
+func BenchmarkSetBatch(b *testing.B) {
+	batchSize := 1
+	s := storage.NewMemStorage()
+	db, _ := leveldb.Open(s, nil)
+	batch := new(leveldb.Batch)
+	for n := 0; n < b.N; n++ {
+		if batch.Len() < batchSize {
+			batch.Put([]byte(getTimeString()), []byte("value"))
+		} else {
+			db.Write(batch, nil)
+			batch.Reset()
+		}
+	}
+	db.Close()
 }
