@@ -1,8 +1,96 @@
 package kafka
 
 import (
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/valyala/fastjson"
 )
+
+func B2f(b bool) float64 {
+	if b {
+		return float64(1)
+	}
+	return float64(0)
+}
+
+func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
+	var parser fastjson.Parser
+	values, err := parser.Parse(stats.String())
+	if err != nil {
+		p.Logger.Errorf("Could not parse librdkafka stats event: %v", err)
+		return
+	}
+	histoMetrics := []string{"max", "avg", "p50", "p95", "p99"}
+	producerID := string(values.GetStringBytes("name"))
+	//librdkafka global metrics
+	globalMetrics := []string{"msg_cnt", "msg_size", "tx", "tx_bytes", "rx", "rx_bytes", "txmsgs", "txmsgs_bytes", "rxmsgs", "rxmsgs_bytes"}
+	for _, m := range globalMetrics {
+		metricRDKafkaGlobal.With(prometheus.Labels{
+			"metric":      m,
+			"producer_id": producerID,
+		}).Set(values.GetFloat64(m))
+	}
+	//librdkafka broker metrics
+	brokerMetrics := []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "tx_bytes", "rx", "rx_bytes", "connects", "disconnects"}
+	values.GetObject("brokers").Visit(func(key []byte, v *fastjson.Value) {
+		brokerID := string(v.GetStringBytes("name"))
+		metricRDKafkaBroker.With(prometheus.Labels{
+			"metric":      "state_up",
+			"producer_id": producerID,
+			"broker":      brokerID,
+			"window":      "",
+		}).Set(B2f(string(values.GetStringBytes("state")) == "UP"))
+		for _, m := range brokerMetrics {
+			metricRDKafkaBroker.With(prometheus.Labels{
+				"metric":      m,
+				"producer_id": producerID,
+				"broker":      brokerID,
+				"window":      "",
+			}).Set(values.GetFloat64(m))
+		}
+		for _, m := range []string{"int_latency", "outbuf_latency", "rtt"} {
+			for _, window := range histoMetrics {
+				metricRDKafkaBroker.With(prometheus.Labels{
+					"metric":      m,
+					"producer_id": producerID,
+					"broker":      brokerID,
+					"window":      window,
+				}).Set(v.GetFloat64(m, window))
+			}
+		}
+	})
+	//librdkafka topic metrics
+	topicMetrics := []string{"batchsize", "batchcnt"}
+	partitionMetrics := []string{"msgq_cnt", "xmit_msgq_cnt", "msgs_inflight"}
+	values.GetObject("topics").Visit(func(key []byte, v *fastjson.Value) {
+		topic := string(v.GetStringBytes("topic"))
+		for _, m := range topicMetrics {
+			for _, window := range histoMetrics {
+				metricRDKafkaTopic.With(prometheus.Labels{
+					"metric":      m,
+					"producer_id": producerID,
+					"topic":       topic,
+					"window":      window,
+				}).Set(v.GetFloat64(m, window))
+			}
+		}
+		//librdkafka topic-partition metrics
+		aggrPartitionData := map[string]float64{}
+		for _, m := range partitionMetrics {
+			aggrPartitionData[m] = float64(0)
+			v.GetObject("partitions").Visit(func(key []byte, pv *fastjson.Value) {
+				aggrPartitionData[m] += pv.GetFloat64(m)
+			})
+			metricRDKafkaPartition.With(prometheus.Labels{
+				"metric":      m,
+				"producer_id": producerID,
+				"topic":       topic,
+				"partition":   "aggr_sum",
+			}).Set(aggrPartitionData[m])
+		}
+	})
+
+}
 
 var (
 	msgSent = prometheus.NewCounterVec(
@@ -103,6 +191,34 @@ var (
 			Help: "Kafka driver events queue length",
 		},
 	)
+	metricRDKafkaGlobal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "rdkafka_global",
+			Help: "librdkafka internal metrics",
+		},
+		[]string{"producer_id", "metric"},
+	)
+	metricRDKafkaBroker = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "rdkafka_broker",
+			Help: "librdkafka internal metrics",
+		},
+		[]string{"producer_id", "metric", "broker", "window"},
+	)
+	metricRDKafkaTopic = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "rdkafka_topic",
+			Help: "librdkafka internal metrics",
+		},
+		[]string{"producer_id", "metric", "topic", "window"},
+	)
+	metricRDKafkaPartition = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "rdkafka_partition",
+			Help: "librdkafka internal metrics",
+		},
+		[]string{"producer_id", "metric", "topic", "partition"},
+	)
 )
 
 func registerMetrics(prom *prometheus.Registry) {
@@ -121,5 +237,9 @@ func registerMetrics(prom *prometheus.Registry) {
 		metricCertExpirationTime,
 		metricCaExpirationTime,
 		metricKafkaEventsQueueLen,
+		metricRDKafkaGlobal,
+		metricRDKafkaBroker,
+		metricRDKafkaTopic,
+		metricRDKafkaPartition,
 	)
 }

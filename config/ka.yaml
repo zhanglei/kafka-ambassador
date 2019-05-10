@@ -27,3 +27,4 @@ kafka:
     "message.timeout.ms": 60000
     "socket.timeout.ms": 10000
     "linger.ms": 3000
+    "statistics.interval.ms": 10000
