@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,9 +16,8 @@ import (
 
 type I interface {
 	GetProducersCount() int
-	GetActiveProducerID() uint
+	GetActiveProducerID() string
 	GetProducer() *ProducerWrapper
-	GenerateProducerID() uint
 	AddActiveProducer(ProducerI, *kafka.ConfigMap) error
 	Init(*kafka.ConfigMap, *prometheus.Registry) error
 	ReSend()
@@ -46,7 +44,7 @@ const (
 type ProducerWrapper struct {
 	Producer ProducerI
 	Transit  int64
-	ID       uint
+	ID       string
 }
 
 type EventWrapper struct {
@@ -55,8 +53,8 @@ type EventWrapper struct {
 }
 
 type T struct {
-	producers        map[uint]*ProducerWrapper
-	activeProducerID uint
+	producers        map[string]*ProducerWrapper
+	activeProducerID string
 	Logger           logger.Logger
 	Config           *Config
 	wal              wal.I
@@ -89,7 +87,7 @@ func (p *T) GetProducersCount() int {
 	return len(p.producers)
 }
 
-func (p *T) GetActiveProducerID() uint {
+func (p *T) GetActiveProducerID() string {
 	return p.activeProducerID
 }
 
@@ -99,20 +97,13 @@ func (p *T) GetProducer() *ProducerWrapper {
 	return p.producers[p.GetActiveProducerID()]
 }
 
-func (p *T) GenerateProducerID() uint {
-	if p.GetActiveProducerID() >= ^uint(0) {
-		return 0
-	}
-	return p.GetActiveProducerID() + 1
-}
-
 func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error {
 	if p.producers == nil {
-		p.producers = map[uint]*ProducerWrapper{}
+		p.producers = map[string]*ProducerWrapper{}
 	}
 	p.producerMutex.Lock()
 	previousActiveID := p.activeProducerID
-	pid := p.GenerateProducerID()
+	pid := kp.String()
 	p.activeProducerID = pid
 	pw := ProducerWrapper{
 		Producer: kp,
@@ -130,7 +121,7 @@ func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error 
 	}(&pw)
 	p.producerMutex.Unlock()
 	activeProducer.With(prometheus.Labels{
-		"producer_id": strconv.FormatUint(uint64(pid), 10),
+		"producer_id": pid,
 	}).Set(1)
 	lastProducerStartTime.Set(float64(time.Now().Unix()))
 	if KafkaParamsPathExists(kafkaParams, "ssl.certificate.location") {
@@ -153,7 +144,7 @@ func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error 
 		//shut down former lead producer when it has no messages in transit
 		if oldPW, ok := p.producers[previousActiveID]; ok {
 			activeProducer.With(prometheus.Labels{
-				"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
+				"producer_id": oldPW.ID,
 			}).Set(0)
 			go func() {
 				firstAttemptTime := time.Now()
@@ -165,16 +156,15 @@ func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error 
 						break
 					}
 				}
-				p.Logger.Infof("Closing old producer #%d. Messages in queue: %d (time since first attemts: %s, OldProducerKillTimeout: %s)", previousActiveID, oldPW.Transit, time.Since(firstAttemptTime), p.Config.OldProducerKillTimeout)
+				p.Logger.Infof("Closing old producer %s. Messages in queue: %d (time since first attemts: %s, OldProducerKillTimeout: %s)", previousActiveID, oldPW.Transit, time.Since(firstAttemptTime), p.Config.OldProducerKillTimeout)
 				oldPW.Producer.Close()
 				go func() {
-					time.Sleep(10 * time.Minute)
-					msgInTransit.Delete(prometheus.Labels{
-						"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
-					})
-					activeProducer.Delete(prometheus.Labels{
-						"producer_id": strconv.FormatUint(uint64(oldPW.ID), 10),
-					})
+					p.dropProducerMetrics(oldPW.ID)
+					timeout := 10 * time.Minute
+					p.Logger.Debugf("Going to drop metrics for the old producer %s in %s", oldPW.ID, timeout)
+					time.Sleep(timeout)
+					p.Logger.Infof("Dropping metrics for the old producer: %s", oldPW.ID)
+					p.dropProducerMetrics(oldPW.ID)
 				}()
 				p.producerMutex.Lock()
 				if _, stillOk := p.producers[previousActiveID]; stillOk {
@@ -363,7 +353,7 @@ func (p *T) produce(topic string, message []byte, opaque interface{}) {
 		atomic.AddInt64(&(pw.Transit), 1)
 	}
 	msgInTransit.With(prometheus.Labels{
-		"producer_id": strconv.FormatUint(uint64(pw.ID), 10),
+		"producer_id": pw.ID,
 	}).Add(1)
 
 }
@@ -376,7 +366,7 @@ func (p *T) producerEventsHandler() {
 			m := ev
 			atomic.AddInt64(&(eventWrap.Producer.Transit), -1)
 			msgInTransit.With(prometheus.Labels{
-				"producer_id": strconv.FormatUint(uint64(eventWrap.Producer.ID), 10),
+				"producer_id": eventWrap.Producer.ID,
 			}).Add(-1)
 			if m.TopicPartition.Error != nil {
 				msgNOK.With(prometheus.Labels{
@@ -477,7 +467,7 @@ func canRetry(err error) bool {
 func (p *T) QueueIsEmpty() bool {
 	allEmpty := true
 	for pid, pw := range p.producers {
-		p.Logger.Infof("Messages in queue #%d (leadProducer: %t): %d", pid, pid == p.GetActiveProducerID(), pw.Transit)
+		p.Logger.Infof("Messages in queue %s (leadProducer: %t): %d", pid, pid == p.GetActiveProducerID(), pw.Transit)
 		if pw.Transit > 0 {
 			allEmpty = false
 		}
