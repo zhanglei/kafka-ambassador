@@ -2,9 +2,17 @@ package kafka
 
 import (
 	"github.com/anchorfree/data-go/pkg/promutils"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fastjson"
+)
+
+var (
+	rdHistoMetrics       = []string{"min", "max", "avg", "p50", "p95", "p99"}
+	rdGlobalMetrics      = []string{"replyq", "msg_cnt", "msg_size", "tx", "tx_bytes", "rx", "rx_bytes", "txmsgs", "txmsgs_bytes", "rxmsgs", "rxmsgs_bytes"}
+	rdBrokerMetrics      = []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "tx_bytes", "req_timeouts", "rx", "rx_bytes", "connects", "disconnects"}
+	rdBrokerHistoMetrics = []string{"int_latency", "outbuf_latency", "rtt"}
+	rdTopicMetrics       = []string{"batchsize", "batchcnt"}
+	rdPartitionMetrics   = []string{"msgq_cnt", "bsgq_bytes", "xmit_msgq_cnt", "msgs_inflight"}
 )
 
 type MetricVec interface {
@@ -27,25 +35,21 @@ func (p *T) dropProducerMetrics(producer_id string) {
 	}
 }
 
-func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
+func populateRDKafkaMetrics(stats string) error {
 	var parser fastjson.Parser
-	values, err := parser.Parse(stats.String())
+	values, err := parser.Parse(stats)
 	if err != nil {
-		p.Logger.Errorf("Could not parse librdkafka stats event: %v", err)
-		return
+		return err
 	}
-	histoMetrics := []string{"min", "max", "avg", "p50", "p95", "p99"}
 	producerID := string(values.GetStringBytes("name"))
 	//librdkafka global metrics
-	globalMetrics := []string{"replyq", "msg_cnt", "msg_size", "tx", "tx_bytes", "rx", "rx_bytes", "txmsgs", "txmsgs_bytes", "rxmsgs", "rxmsgs_bytes"}
-	for _, m := range globalMetrics {
+	for _, m := range rdGlobalMetrics {
 		metricRDKafkaGlobal.With(prometheus.Labels{
 			"metric":      m,
 			"producer_id": producerID,
 		}).Set(values.GetFloat64(m))
 	}
 	//librdkafka broker metrics
-	brokerMetrics := []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "tx_bytes", "req_timeouts", "rx", "rx_bytes", "connects", "disconnects"}
 	values.GetObject("brokers").Visit(func(key []byte, v *fastjson.Value) {
 		brokerID := string(v.GetStringBytes("name"))
 		metricRDKafkaBroker.With(prometheus.Labels{
@@ -54,7 +58,7 @@ func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
 			"broker":      brokerID,
 			"window":      "",
 		}).Set(B2f(string(values.GetStringBytes("state")) == "UP"))
-		for _, m := range brokerMetrics {
+		for _, m := range rdBrokerMetrics {
 			metricRDKafkaBroker.With(prometheus.Labels{
 				"metric":      m,
 				"producer_id": producerID,
@@ -62,8 +66,8 @@ func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
 				"window":      "",
 			}).Set(values.GetFloat64(m))
 		}
-		for _, m := range []string{"int_latency", "outbuf_latency", "rtt"} {
-			for _, window := range histoMetrics {
+		for _, m := range rdBrokerHistoMetrics {
+			for _, window := range rdHistoMetrics {
 				metricRDKafkaBroker.With(prometheus.Labels{
 					"metric":      m,
 					"producer_id": producerID,
@@ -74,12 +78,10 @@ func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
 		}
 	})
 	//librdkafka topic metrics
-	topicMetrics := []string{"batchsize", "batchcnt"}
-	partitionMetrics := []string{"msgq_cnt", "bsgq_bytes", "xmit_msgq_cnt", "msgs_inflight"}
 	values.GetObject("topics").Visit(func(key []byte, v *fastjson.Value) {
 		topic := string(v.GetStringBytes("topic"))
-		for _, m := range topicMetrics {
-			for _, window := range histoMetrics {
+		for _, m := range rdTopicMetrics {
+			for _, window := range rdHistoMetrics {
 				metricRDKafkaTopic.With(prometheus.Labels{
 					"metric":      m,
 					"producer_id": producerID,
@@ -89,7 +91,7 @@ func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
 			}
 		}
 		//librdkafka topic-partition metrics
-		for _, m := range partitionMetrics {
+		for _, m := range rdPartitionMetrics {
 			v.GetObject("partitions").Visit(func(key []byte, pv *fastjson.Value) {
 				metricRDKafkaPartition.With(prometheus.Labels{
 					"metric":      m,
@@ -100,6 +102,7 @@ func (p *T) populateRDKafkaMetrics(stats *kafka.Stats) {
 			})
 		}
 	})
+	return nil
 }
 
 var (

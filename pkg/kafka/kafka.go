@@ -412,7 +412,10 @@ func (p *T) producerEventsHandler() {
 				p.cbOpen()
 			}
 		case *kafka.Stats:
-			p.populateRDKafkaMetrics(ev)
+			err := populateRDKafkaMetrics(ev.String())
+			if err != nil {
+				p.Logger.Infof("Could not populate librdkafka metrics: %v", err)
+			}
 		default:
 			p.Logger.Warnf("Ignored message: %v", eventWrap.Event)
 			eventIgnored.Inc()
