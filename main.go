@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -54,7 +55,7 @@ func main() {
 	}
 	s.Config, err = c.ReadConfig(defaults)
 	if err != nil {
-		return
+		panic(fmt.Sprintf("Could not read config file: %v", err))
 	}
 	// logs
 	cfg := logger.NewLogConfig(s.Config.Sub("global.log"))
