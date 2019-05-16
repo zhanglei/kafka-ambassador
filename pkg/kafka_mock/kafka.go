@@ -22,9 +22,9 @@ func (m *MockedProducer) GetProducersCount() int {
 	args := m.Called()
 	return args.Int(0)
 }
-func (m *MockedProducer) GetActiveProducerID() uint {
+func (m *MockedProducer) GetActiveProducerID() string {
 	args := m.Called()
-	return args.Get(0).(uint)
+	return args.String(0)
 }
 func (m *MockedProducer) GetProducer() *kafka.ProducerWrapper {
 	args := m.Called()
