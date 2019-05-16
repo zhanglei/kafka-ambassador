@@ -159,7 +159,6 @@ func (p *T) AddActiveProducer(kp ProducerI, kafkaParams *kafka.ConfigMap) error 
 				p.Logger.Infof("Closing old producer %s. Messages in queue: %d (time since first attemts: %s, OldProducerKillTimeout: %s)", previousActiveID, oldPW.Transit, time.Since(firstAttemptTime), p.Config.OldProducerKillTimeout)
 				oldPW.Producer.Close()
 				go func() {
-					p.dropProducerMetrics(oldPW.ID)
 					timeout := 10 * time.Minute
 					p.Logger.Debugf("Going to drop metrics for the old producer %s in %s", oldPW.ID, timeout)
 					time.Sleep(timeout)
