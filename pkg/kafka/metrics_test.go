@@ -147,7 +147,7 @@ var rdStatsJson = `
 }
 `
 
-func TestGrpcRequests(t *testing.T) {
+func TestPopulateRDKafkaMetrics(t *testing.T) {
 	metricRDKafkaGlobal.Reset()
 	metricRDKafkaBroker.Reset()
 	metricRDKafkaTopic.Reset()
@@ -250,4 +250,6 @@ rdkafka_partition{metric="xmit_msgq_cnt",partition="1",producer_id="rdkafka#prod
 	assert.Equal(t, expect, rendered, "partition metrics do NOT match")
 	assert.NoError(t, err)
 
+	rendered, err = promutils.Gather(r)
+	assert.Contains(t, rendered, expect)
 }
