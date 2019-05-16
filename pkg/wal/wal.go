@@ -31,6 +31,7 @@ type Wal struct {
 	logger  logger.Logger
 	storage *leveldb.DB
 	stopCh  chan bool
+	batch   *leveldb.Batch
 }
 
 func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, error) {
@@ -54,10 +55,13 @@ func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, err
 		return nil, err
 	}
 
+	batch := new(leveldb.Batch)
+
 	wal := &Wal{
 		storage: db,
 		logger:  logger,
 		stopCh:  make(chan bool),
+		batch:   batch,
 	}
 
 	registerMetrics(prom)
@@ -87,7 +91,19 @@ func (w *Wal) SetRecord(topic string, value []byte) error {
 }
 
 func (w *Wal) Set(key, payload []byte) error {
-	return w.storage.Put(key, payload, nil)
+	// batch size is hardcoded at the moment, as we are considering switch over to some
+	// other DB, which may or may not change the interface.
+	// TODO: create leak-less interface for WAL
+	batchSize := 100
+	var err error
+
+	if w.batch.Len() < batchSize {
+		w.batch.Put(key, payload)
+	} else {
+		err = w.storage.Write(w.batch, nil)
+		w.batch.Reset()
+	}
+	return err
 }
 
 func (w *Wal) Get(key []byte) (*pb.Record, error) {
