@@ -404,7 +404,7 @@ func (p *T) producerEventsHandler() {
 				}
 				success(true)
 			}
-		case *kafka.Error:
+		case kafka.Error:
 			p.Logger.Warnf("%v", eventWrap.Event)
 			if ev.Code() == kafka.ErrAllBrokersDown {
 				p.Logger.Warn("All brokers are down, forcing Circuit Breaker open")
