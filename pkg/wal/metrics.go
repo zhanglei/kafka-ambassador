@@ -156,6 +156,7 @@ func (w *Wal) collectPeriodically(period time.Duration) {
 	for range ticker.C {
 		err := w.storage.Stats(stats)
 		if err == nil {
+			w.logger.Infof("STATS: %+v", stats)
 			statsToProm(stats)
 			w.setWALMessages()
 		}
@@ -181,16 +182,16 @@ func statsToProm(stats *leveldb.DBStats) {
 		levelMetric(ldbStatsLevelSizes, i, stats.LevelSizes[i])
 	}
 	for i := range stats.LevelTablesCounts {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelTablesCounts[i])
+		levelMetric(ldbStatsLevelTablesCounts, i, stats.LevelTablesCounts[i])
 	}
 	for i := range stats.LevelRead {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelRead[i])
+		levelMetric(ldbStatsLevelRead, i, stats.LevelRead[i])
 	}
 	for i := range stats.LevelWrite {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelWrite[i])
+		levelMetric(ldbStatsLevelWrite, i, stats.LevelWrite[i])
 	}
 	for i := range stats.LevelDurations {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelDurations[i].Seconds)
+		levelMetric(ldbStatsLevelDurations, i, stats.LevelDurations[i].Nanoseconds())
 	}
 }
 
@@ -198,6 +199,10 @@ func levelMetric(m *prometheus.GaugeVec, i int, v interface{}) {
 	switch v.(type) {
 	case int64:
 		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(float64(v.(int64)))
+	case int32:
+		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(float64(v.(int32)))
+	case int:
+		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(float64(v.(int)))
 	case float64:
 		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(v.(float64))
 	}

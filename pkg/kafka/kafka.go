@@ -234,7 +234,9 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	// monitor CB state every 10 seconds
 	go p.trackCBState(10 * time.Second)
 	go p.kafkaStats(30 * time.Second)
+	p.cbOpen() // ++++++++++++++++++++++++++++++ DEBUG !!! +++++++++++++++++++++++++++++++++++++++++++++++++++++
 	return err
+
 }
 
 func (p *T) ReSend() {
@@ -256,13 +258,13 @@ func (p *T) ReSend() {
 			p.Logger.Infof("Running resend with limit %d, as CB is half open", recordLimit)
 		default:
 			recordLimit = 0
-			p.Logger.Infof("Running resend with limit %d, as CB is not open", recordLimit)
+			p.Logger.Infof("Running resend with limit %d, as CB is closed", recordLimit)
 		}
 
 		p.iterateLimit(recordLimit)
 
 		p.Logger.Info("Running compaction on the database")
-		p.wal.CompactAll()
+		//p.wal.CompactAll() //---------------- DEBUG !!!
 	}
 }
 
