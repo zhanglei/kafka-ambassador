@@ -31,7 +31,6 @@ type Wal struct {
 	logger        logger.Logger
 	storage       *badger.DB
 	stopCh        chan bool
-	batch         *badger.WriteBatch
 	writeCh       chan KV
 	deleteCh      chan []byte
 	flushWriteCh  chan struct{}
