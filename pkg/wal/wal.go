@@ -83,7 +83,7 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 			w.lastWriteAt = time.Now()
 			err = batch.Flush()
 			if err != nil {
-				w.logger.Warnf("Could not read record by key due to error %s", err)
+				w.logger.Errorf("Could not read record by key due to error %s", err)
 			}
 			batch = w.storage.NewWriteBatch()
 			c = 0
@@ -195,14 +195,14 @@ func (w *Wal) Get(key []byte) (*pb.Record, error) {
 	err := w.storage.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
-			w.logger.Warnf("Could not read record by key due to error %s", err)
+			w.logger.Errorf("Could not read record by key due to error %s", err)
 			return err
 		}
 		err = item.Value(func(v []byte) error {
 			var err error
 			r, err = FromBytes(v)
 			if err != nil {
-				w.logger.Warnf("Could not read value from record due to error %s", err)
+				w.logger.Errorf("Could not read value from record due to error %s", err)
 				return err
 			}
 			return nil
@@ -237,7 +237,7 @@ func (w *Wal) MessageCount() (cnt int64) {
 		return nil
 	})
 	if err != nil {
-		w.logger.Warnf("Could not count database keys")
+		w.logger.Errorf("Could not count database keys")
 	}
 	return cnt
 }
@@ -259,7 +259,7 @@ func (w *Wal) Iterate(limit int64) chan *pb.Record {
 				err := item.Value(func(v []byte) error {
 					r, err := FromBytes(v)
 					if err != nil {
-						w.logger.Warnf("Could not read from record due to error %s", err)
+						w.logger.Errorf("Could not read from record due to error %s", err)
 						return err
 					}
 					c <- r
@@ -273,7 +273,7 @@ func (w *Wal) Iterate(limit int64) chan *pb.Record {
 			return nil
 		})
 		if err != nil {
-			w.logger.Warnf("Could not count get iterator")
+			w.logger.Errorf("Could not count get iterator")
 		}
 	}(c)
 	return c
