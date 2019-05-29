@@ -543,9 +543,12 @@ func TestListTopics(t *testing.T) {
 	for k, v := range flatten {
 		configMap[k] = v
 	}
+	dir := helperMkWalDir(t)
+	conf := ProducerConfig(viper.New())
+	conf.Wal = wal.Config{Path: dir}
 	p := &T{
 		Logger: logger.Sugar(),
-		Config: ProducerConfig(viper.New()), //default config
+		Config: conf, //default config
 	}
 	p.Init(&configMap, prometheus.NewRegistry())
 	topics, err := p.ListTopics()
