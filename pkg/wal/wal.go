@@ -77,7 +77,6 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 		var err error
 		batch := w.storage.NewWriteBatch()
 		flush := func() {
-			w.lastWriteAt = time.Now()
 			err = batch.Flush()
 			if err != nil {
 				w.logger.Errorf("Could not read record by key due to error %s", err)
@@ -88,6 +87,7 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 		for {
 			select {
 			case kv := <-w.writeCh:
+				w.lastWriteAt = time.Now()
 				if c < w.config.WriteBatchSize {
 					batch.Set(kv.k, kv.v, byte(0))
 					c++
