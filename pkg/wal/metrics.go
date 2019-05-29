@@ -1,11 +1,9 @@
 package wal
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 var (
@@ -35,94 +33,17 @@ var (
 			Help: "Number of wal records remaining in WAL",
 		},
 	)
-	ldbStatsWriteDelayCount = prometheus.NewGauge(
+	writeBatchChLen = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "wal_leveldb_write_delay_cnt",
-			Help: "Write Delay counter",
+			Name: "wal_write_batch_ch_len",
+			Help: "Number of objects in wal write channel",
 		},
 	)
-	ldbStatsWriteDelayDuration = prometheus.NewGauge(
+	deleteBatchChLen = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "wal_leveldb_write_delay_duration",
-			Help: "Write delay milliseconds",
+			Name: "wal_delete_batch_ch_len",
+			Help: "Number of objects in wal delete channel",
 		},
-	)
-	ldbStatsWritePaused = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_writes_paused",
-			Help: "Paused 1, non-paused = 0",
-		},
-	)
-	ldbStatsAliveSnapshots = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_alive_snapshots",
-			Help: "Amount of alive leveldb snapshots",
-		},
-	)
-	ldbStatsAliveIterators = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_alive_iterators",
-			Help: "Amount of alive iterators over leveldb",
-		},
-	)
-	ldbStatsIOWrite = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_io_write",
-			Help: "IO stats for write operation",
-		},
-	)
-	ldbStatsIORead = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_io_read",
-			Help: "IO stats for read operations",
-		},
-	)
-	ldbStatsBlockCacheSize = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_block_cache_size",
-			Help: "Block cache size",
-		},
-	)
-	ldbStatsOpenedTablesCount = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_opened_tables",
-			Help: "Number of leveldb opened tables",
-		},
-	)
-	ldbStatsLevelSizes = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_level_size",
-			Help: "Size of level table",
-		},
-		[]string{"id"},
-	)
-	ldbStatsLevelTablesCounts = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_level_tables",
-			Help: "Number of leveldb tables",
-		},
-		[]string{"id"},
-	)
-	ldbStatsLevelRead = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_level_reads",
-			Help: "Number of wal leveldb reads",
-		},
-		[]string{"id"},
-	)
-	ldbStatsLevelWrite = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_level_writes",
-			Help: "Number of wal leveldb writes",
-		},
-		[]string{"id"},
-	)
-	ldbStatsLevelDurations = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "wal_leveldb_level_durations",
-			Help: "Time spent on leveldb actions",
-		},
-		[]string{"id"},
 	)
 )
 
@@ -132,73 +53,112 @@ func registerMetrics(prom *prometheus.Registry) {
 		msgWrites,
 		msgDeletes,
 		walMessages,
-		ldbStatsWriteDelayCount,
-		ldbStatsWriteDelayDuration,
-		ldbStatsWritePaused,
-		ldbStatsAliveSnapshots,
-		ldbStatsAliveIterators,
-		ldbStatsIOWrite,
-		ldbStatsIORead,
-		ldbStatsBlockCacheSize,
-		ldbStatsOpenedTablesCount,
-		ldbStatsLevelSizes,
-		ldbStatsLevelTablesCounts,
-		ldbStatsLevelRead,
-		ldbStatsLevelWrite,
-		ldbStatsLevelDurations,
+		writeBatchChLen,
+		deleteBatchChLen,
 	)
+	prom.MustRegister(expvarCollector())
+}
+
+func (w *Wal) setWALMessagesMetric() {
+	cnt := w.MessageCount()
+	walMessages.Set(float64(cnt))
+}
+
+func (w *Wal) setWriteBatchChLenMetric() {
+	writeBatchChLen.Set(float64(len(w.writeCh)))
+}
+
+func (w *Wal) setDeleteBatchChLenMetric() {
+	deleteBatchChLen.Set(float64(len(w.deleteCh)))
 }
 
 func (w *Wal) collectPeriodically(period time.Duration) {
-	ticker := time.NewTicker(period)
-
-	stats := new(leveldb.DBStats)
-	for range ticker.C {
-		err := w.storage.Stats(stats)
-		if err == nil {
-			statsToProm(stats)
-			w.setWALMessages()
-		}
+	for range time.Tick(period) {
+		w.setWALMessagesMetric()
+		w.setWriteBatchChLenMetric()
+		w.setDeleteBatchChLenMetric()
 	}
 }
 
-func statsToProm(stats *leveldb.DBStats) {
-	ldbStatsWriteDelayCount.Set(float64(stats.WriteDelayCount))
-	ldbStatsWriteDelayDuration.Set(float64(stats.WriteDelayDuration))
-	if stats.WritePaused {
-		ldbStatsWritePaused.Set(1)
-	} else {
-		ldbStatsWritePaused.Set(0)
-	}
-	ldbStatsAliveSnapshots.Set(float64(stats.AliveSnapshots))
-	ldbStatsAliveIterators.Set(float64(stats.AliveIterators))
-	ldbStatsIOWrite.Set(float64(stats.IOWrite))
-	ldbStatsIORead.Set(float64(stats.IORead))
-	ldbStatsBlockCacheSize.Set(float64(stats.BlockCacheSize))
-	ldbStatsOpenedTablesCount.Set(float64(stats.OpenedTablesCount))
-	// these are array metrics
-	for i := range stats.LevelSizes {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelSizes[i])
-	}
-	for i := range stats.LevelTablesCounts {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelTablesCounts[i])
-	}
-	for i := range stats.LevelRead {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelRead[i])
-	}
-	for i := range stats.LevelWrite {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelWrite[i])
-	}
-	for i := range stats.LevelDurations {
-		levelMetric(ldbStatsLevelSizes, i, stats.LevelDurations[i].Seconds)
-	}
-}
-
-func levelMetric(m *prometheus.GaugeVec, i int, v interface{}) {
-	switch v.(type) {
-	case int64:
-		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(float64(v.(int64)))
-	case float64:
-		m.WithLabelValues(fmt.Sprintf("%d", i)).Set(v.(float64))
-	}
+func expvarCollector() prometheus.Collector {
+	return prometheus.NewExpvarCollector(map[string]*prometheus.Desc{
+		"badger_disk_reads_total": prometheus.NewDesc(
+			"badger_disk_reads_total",
+			"NumReads has cumulative number of reads",
+			nil,
+			nil,
+		),
+		"badger_disk_writes_total": prometheus.NewDesc(
+			"badger_disk_writes_total",
+			"NumWrites has cumulative number of writes",
+			nil,
+			nil,
+		),
+		"badger_read_bytes": prometheus.NewDesc(
+			"badger_read_bytes",
+			"NumBytesRead has cumulative number of bytes read",
+			nil,
+			nil,
+		),
+		"badger_written_bytes": prometheus.NewDesc(
+			"badger_written_bytes",
+			"NumBytesWritten has cumulative number of bytes written",
+			nil,
+			nil,
+		),
+		"badger_lsm_level_gets_total": prometheus.NewDesc(
+			"badger_lsm_level_gets_total",
+			"NumLSMGets is number of LMS gets",
+			[]string{"level"},
+			nil,
+		),
+		"badger_lsm_bloom_hits_total": prometheus.NewDesc(
+			"badger_lsm_bloom_hits_total",
+			"NumLSMBloomHits is number of LMS bloom hits",
+			[]string{"level"},
+			nil,
+		),
+		"badger_gets_total": prometheus.NewDesc(
+			"badger_gets_total",
+			"NumGets is number of gets",
+			nil,
+			nil,
+		),
+		"badger_puts_total": prometheus.NewDesc(
+			"badger_puts_total",
+			"NumPuts is number of puts",
+			nil,
+			nil,
+		),
+		"badger_blocked_puts_total": prometheus.NewDesc(
+			"badger_blocked_puts_total",
+			"NumBlockedPuts is number of blocked puts",
+			nil,
+			nil,
+		),
+		"badger_memtable_gets_total": prometheus.NewDesc(
+			"badger_memtable_gets_total",
+			"NumMemtableGets is number of memtable gets",
+			nil,
+			nil,
+		),
+		"badger_lsm_size_bytes": prometheus.NewDesc(
+			"badger_lsm_size_bytes",
+			"LSMSize has size of the LSM in bytes",
+			[]string{"dir"},
+			nil,
+		),
+		"badger_vlog_size_bytes": prometheus.NewDesc(
+			"badger_vlog_size_bytes",
+			"VlogSize has size of the value log in bytes",
+			[]string{"dir"},
+			nil,
+		),
+		"badger_pending_writes_total": prometheus.NewDesc(
+			"badger_pending_writes_total",
+			"PendingWrites tracks the number of pending writes.",
+			[]string{"dir"},
+			nil,
+		),
+	})
 }

@@ -208,11 +208,11 @@ func TestLifeCycle(t *testing.T) {
 	fmt.Println("Going to sleep for a while to let producer init")
 	time.Sleep(time.Second * 5)
 
-	assert.Equal(int64(0), p.wal.Messages(), "WAL should be empty")
+	assert.Equal(int64(0), p.wal.MessageCount(), "WAL should be empty")
 	assert.Equal(gobreaker.StateClosed, p.cb.State())
 	p.Send(testTopic, []byte("test message 1"))
 	p.Send(testTopic, []byte("test message 2"))
-	assert.Equal(int64(0), p.wal.Messages(), "WAL still should be empty")
+	assert.Equal(int64(0), p.wal.MessageCount(), "WAL still should be empty")
 
 	fmt.Println("Sleep to flush librdkafka queue")
 	time.Sleep(time.Second * 5)
@@ -228,7 +228,7 @@ func TestLifeCycle(t *testing.T) {
 		fmt.Printf("Sending test message: %s", m)
 		p.Send(testTopic, m)
 	}
-	assert.True(p.wal.Messages() >= int64(p.Config.CBMaxRequests), "Messages have to hit wal already")
+	assert.True(p.wal.MessageCount() >= int64(p.Config.CBMaxRequests), "Messages have to hit wal already")
 
 	fmt.Println("Reopen proxy")
 	proxy.Run()
@@ -239,7 +239,7 @@ func TestLifeCycle(t *testing.T) {
 	assert.Equal(gobreaker.StateClosed, p.cb.State(), "Circuit breaker should be closed (green light)")
 	fmt.Println("Send extra message 3")
 	p.Send(testTopic, []byte("test message 3"))
-	assert.True(p.wal.Messages() >= int64(p.Config.CBMaxRequests))
+	assert.True(p.wal.MessageCount() >= int64(p.Config.CBMaxRequests))
 
 	p.GetProducer().Producer.Close()
 	server.Close()

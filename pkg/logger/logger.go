@@ -17,6 +17,8 @@ type Logger interface {
 	Warnf(string, ...interface{})
 	Debug(...interface{})
 	Debugf(string, ...interface{})
+	Panic(...interface{})
+	Panicf(string, ...interface{})
 }
 
 func NewLogConfig(c *viper.Viper) zap.Config {

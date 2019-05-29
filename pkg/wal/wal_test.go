@@ -2,137 +2,117 @@ package wal
 
 import (
 	"fmt"
-	"hash/crc32"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/storage"
-	"github.com/syndtr/goleveldb/leveldb/util"
+	"go.uber.org/zap"
 )
-
-func crcSum(data []byte) int32 {
-	crc := crc32.New(crcTable)
-	crc.Write(data)
-	return int32(crc.Sum32())
-}
 
 const (
-	folder = "/tmp"
-	topic  = "test"
+	topic = "test"
 )
 
-var (
-	testpayload = []byte("test value")
-	crc         = crcSum(testpayload)
-)
-
-// func TestWriteReadMessage(t *testing.T) {
-// 	assert := assert.New(t)
-// 	s, err := New(folder)
-// 	assert.Nil(err)
-// 	s.SetRecord(topic, testpayload)
-// 	r, err := s.Get([]byte("1234567"))
-// 	assert.NotNil(r)
-// 	assert.Equal(r.Topic, topic)
-// 	s.Close()
-// 	// Open data folder
-// 	s, err = New(topic)
-// 	assert.Nil(err)
-// 	r, err = s.Get([]byte("1234567"))
-// 	assert.NotNil(r)
-// 	assert.Equal(r.Topic, "test")
-// 	assert.Equal(r.Payload, testpayload)
-
-// 	err = s.Del([]byte("1234567"))
-// 	assert.Nil(err)
-
-// 	r, err = s.Get([]byte("1234567"))
-// 	assert.Nil(r)
-// }
-
-func TestWALIterator(t *testing.T) {
-	var key, val []byte
-	cnt := 0
-	assert := assert.New(t)
-	storage := storage.NewMemStorage()
-	db, err := leveldb.Open(storage, nil)
-	assert.Nil(err)
-	db.Put([]byte("key1"), []byte("val1"), nil)
-	db.Put([]byte("key2"), []byte("val2"), nil)
-	iter := db.NewIterator(nil, nil)
-	for iter.Next() {
-		cnt++
-		key = iter.Key()
-		val = iter.Value()
-		fmt.Printf("%s: %s\n", string(key), string(val))
-	}
-	assert.Equal(2, cnt)
-	db.Put([]byte("key3"), []byte("val3"), nil)
-	iter.Release()
-	r := util.Range{
-		Start: nil,
-		Limit: nil,
-	}
-	db.CompactRange(r)
-
-	db.Put([]byte("key4"), []byte("val4"), nil)
-	iter = db.NewIterator(nil, nil)
-	cnt = 0
-	for iter.Next() {
-		cnt++
-		key = iter.Key()
-		val = iter.Value()
-		fmt.Printf("%s: %s\n", string(key), string(val))
-	}
-	assert.Equal(4, cnt)
-	assert.Equal([]byte("key4"), key)
-	assert.Equal([]byte("val4"), val)
-	iter.Release()
+var messages = []string{
+	"message1",
+	"a second message",
+	"little more",
+	"444444444444",
+	"fifth element",
+	"six is a nice number",
+	"seven is good as well",
+	"ocheinta y ocho",
+	"noveinta y nueve",
+	"and now is the ten",
 }
 
-func getTimeString() string {
-	now := time.Now()
-	t := now.UnixNano()
-	return fmt.Sprintf("%d", t)
+func TestInAndOut(t *testing.T) {
+	dir := helperMkWalDir(t)
+	defer os.RemoveAll(dir)
+	registry := prometheus.NewRegistry()
+	conf := Config{
+		Path: dir,
+	}
+	w, err := New(conf, registry, zap.NewExample().Sugar())
+	assert.NoError(t, err)
+	for _, m := range messages {
+		err = w.Set(topic, []byte(m))
+		assert.NoError(t, err)
+	}
+	helperWaitForEmptyCh(t, w.writeCh, 1*time.Second)
+	assert.NoError(t, w.FlushWrites())
+	assert.Equal(t, int64(len(messages)), w.MessageCount())
+
+	//Try to pull all records with Iterate first
+	looped := []string{}
+	for r := range w.Iterate(0) {
+		looped = append(looped, string(r.Payload))
+		assert.Equal(t, topic, r.Topic)
+	}
+	assert.ElementsMatch(t, messages, looped, "Looped messages should match original test table")
+	//Try to pull limited amount with Iterate()
+	looped = []string{}
+	limit := 5
+	assert.True(t, len(messages) >= limit, "The limit should be less or equal than the test message count")
+	for r := range w.Iterate(int64(limit)) {
+		looped = append(looped, string(r.Payload))
+		assert.Equal(t, topic, r.Topic)
+	}
+	assert.Equal(t, limit, len(looped))
+	assert.Subset(t, messages, looped)
+	//Re-open database
+	w.storage.Sync()
+	w.Close()
+	registry = prometheus.NewRegistry()
+	w, err = New(conf, registry, zap.NewExample().Sugar())
+	//Try to pull all records with Iterate first
+	looped = []string{}
+	for _, m := range messages {
+		k := Uint32ToBytes(CrcSum([]byte(m)))
+		r, err := w.Get(k)
+		assert.NoError(t, err)
+		looped = append(looped, string(r.Payload))
+		assert.Equal(t, topic, r.Topic)
+	}
+	assert.ElementsMatch(t, messages, looped, "Looped messages should match original test table")
+	//still same amount should be in the WAL
+	assert.Equal(t, int64(len(messages)), w.MessageCount())
+	for _, m := range messages {
+		err = w.Del(Uint32ToBytes(CrcSum([]byte(m))))
+		assert.NoError(t, err)
+	}
+	helperWaitForEmptyCh(t, w.deleteCh, 1*time.Second)
+	assert.NoError(t, w.FlushDeletes())
+	assert.Equal(t, int64(0), w.MessageCount())
+
 }
 
-func BenchmarkSetSingle(b *testing.B) {
-	s := storage.NewMemStorage()
-	db, _ := leveldb.Open(s, nil)
-	for n := 0; n < b.N; n++ {
-		db.Put([]byte(getTimeString()), []byte("value"), nil)
-	}
-	db.Close()
+func helperMkWalDir(t *testing.T) string {
+	t.Helper()
+	dir := fmt.Sprintf("/tmp/wal-test-%d", time.Now().UnixNano())
+	err := os.MkdirAll(dir, 0777)
+	assert.NoError(t, err)
+	return dir
 }
 
-func BenchmarkSetWithOptions(b *testing.B) {
-	s := storage.NewMemStorage()
-	dbOpts := &opt.Options{
-		NoWriteMerge: true,
-		Compression:  opt.NoCompression,
-	}
-	db, _ := leveldb.Open(s, dbOpts)
-	for n := 0; n < b.N; n++ {
-		db.Put([]byte(getTimeString()), []byte("value"), nil)
-	}
-	db.Close()
-}
-
-func BenchmarkSetBatch(b *testing.B) {
-	batchSize := 1
-	s := storage.NewMemStorage()
-	db, _ := leveldb.Open(s, nil)
-	batch := new(leveldb.Batch)
-	for n := 0; n < b.N; n++ {
-		if batch.Len() < batchSize {
-			batch.Put([]byte(getTimeString()), []byte("value"))
-		} else {
-			db.Write(batch, nil)
-			batch.Reset()
+func helperWaitForEmptyCh(t *testing.T, ch interface{}, d time.Duration) {
+	t.Helper()
+	loops := 10
+	for c := 0; c < loops; c++ {
+		time.Sleep(d / time.Duration(loops))
+		switch ch.(type) {
+		case chan KV:
+			if len(ch.(chan KV)) == 0 {
+				return
+			}
+		case chan []byte:
+			if len(ch.(chan []byte)) == 0 {
+				return
+			}
 		}
 	}
-	db.Close()
+	t.Error("Wait for empty channel timed out")
+	t.FailNow()
 }
