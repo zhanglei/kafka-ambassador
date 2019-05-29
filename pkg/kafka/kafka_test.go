@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/anchorfree/kafka-ambassador/pkg/config"
 	"github.com/anchorfree/kafka-ambassador/pkg/testproxy"
+	"github.com/anchorfree/kafka-ambassador/pkg/wal"
 	"github.com/optiopay/kafka/kafkatest"
 	"github.com/optiopay/kafka/proto"
 	"github.com/spf13/viper"
@@ -193,10 +195,11 @@ func TestLifeCycle(t *testing.T) {
 		configMap[k] = v
 	}
 
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:    "",
+			Wal:             wal.Config{Path: dir},
 			ResendRateLimit: 10,
 			ResendPeriod:    0,
 			CBTimeout:       2 * time.Second,
@@ -396,10 +399,11 @@ func TestTLS(t *testing.T) {
 		configMap[k] = v
 	}
 
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:           "",
+			Wal:                    wal.Config{Path: dir},
 			ResendRateLimit:        10,
 			ResendPeriod:           0,
 			CBTimeout:              2 * time.Second,
@@ -491,10 +495,11 @@ func TestAddingActiveProducer(t *testing.T) {
 	}
 
 	oldProducerKillTimeout := 3 * time.Second
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:           "",
+			Wal:                    wal.Config{Path: dir},
 			ResendRateLimit:        10,
 			ResendPeriod:           0,
 			CBTimeout:              2 * time.Second,
@@ -570,4 +575,12 @@ func helperGetOutput(timeout time.Duration) []byte {
 		return nil
 	}
 	return out
+}
+
+func helperMkWalDir(t *testing.T) string {
+	t.Helper()
+	dir := fmt.Sprintf("/tmp/wal-test-%d", time.Now().UnixNano())
+	err := os.MkdirAll(dir, 0777)
+	assert.NoError(t, err)
+	return dir
 }

@@ -73,7 +73,6 @@ type Config struct {
 	WalMode                Mode
 	AlwaysWalTopics        []string
 	DisableWalTopics       []string
-	WalDirectory           string
 	ResendRateLimit        int
 	CBTimeout              time.Duration
 	CBInterval             time.Duration
