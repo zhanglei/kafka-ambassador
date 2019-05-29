@@ -59,14 +59,11 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 		return nil, err
 	}
 
-	batch := db.NewWriteBatch()
-
 	wal := &Wal{
 		storage:       db,
 		config:        conf,
 		logger:        logger,
 		stopCh:        make(chan bool),
-		batch:         batch,
 		writeCh:       make(chan KV, conf.WriteChSize),
 		deleteCh:      make(chan []byte, conf.DeleteChSize),
 		flushWriteCh:  make(chan struct{}),
