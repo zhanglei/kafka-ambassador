@@ -7,73 +7,169 @@ import (
 
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
+	"github.com/dgraph-io/badger"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/imdario/mergo"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/errors"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
-	"github.com/syndtr/goleveldb/leveldb/storage"
-	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 type I interface {
 	Close()
-	Set([]byte, []byte) error
 	Del([]byte) error
 	Get([]byte) (*pb.Record, error)
-	CompactAll() error
 	Iterate(int64) chan *pb.Record
-	Iterator() iterator.Iterator
-	SetRecord(string, []byte) error
-	Messages() int64
-}
-type Wal struct {
-	logger  logger.Logger
-	storage *leveldb.DB
-	stopCh  chan bool
-	batch   *leveldb.Batch
+	Set(string, []byte) error
+	MessageCount() int64
 }
 
-func New(dir string, prom *prometheus.Registry, logger logger.Logger) (*Wal, error) {
-	var s storage.Storage
+type KV struct {
+	k []byte
+	v []byte
+}
+
+type Wal struct {
+	logger        logger.Logger
+	storage       *badger.DB
+	stopCh        chan bool
+	writeCh       chan KV
+	deleteCh      chan []byte
+	flushWriteCh  chan struct{}
+	flushDeleteCh chan struct{}
+	lastWriteAt   time.Time
+	config        Config
+}
+
+func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, error) {
 	var err error
-	if dir != "" {
-		ok, err := isWritable(dir)
+	if err := mergo.Merge(&conf, DefaultConfig); err != nil {
+		logger.Panic("Could not merge config: %s", err)
+	}
+	logger.Debugf("wal config loaded: %+v", conf)
+	opts := badger.DefaultOptions
+	if conf.Path != "" {
+		ok, err := isWritable(conf.Path)
 		if !ok {
 			logger.Fatalf("The WAL folder does not work due to: %s", err)
 		}
-		s, err = storage.OpenFile(dir, false)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		s = storage.NewMemStorage()
+		opts.Dir = conf.Path
+		opts.ValueDir = conf.Path
 	}
-
-	db, err := leveldb.Open(s, nil)
+	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	batch := new(leveldb.Batch)
-
 	wal := &Wal{
-		storage: db,
-		logger:  logger,
-		stopCh:  make(chan bool),
-		batch:   batch,
+		storage:       db,
+		config:        conf,
+		logger:        logger,
+		stopCh:        make(chan bool),
+		writeCh:       make(chan KV, conf.WriteChSize),
+		deleteCh:      make(chan []byte, conf.DeleteChSize),
+		flushWriteCh:  make(chan struct{}),
+		flushDeleteCh: make(chan struct{}),
 	}
 
 	registerMetrics(prom)
-	go wal.collectPeriodically(30 * time.Second)
+	go wal.collectPeriodically(conf.CollectMetricsPeriod)
+	go func(w *Wal) {
+		c := 0
+		var err error
+		batch := w.storage.NewWriteBatch()
+		flush := func() {
+			err = batch.Flush()
+			if err != nil {
+				w.logger.Errorf("Could not read record by key due to error %s", err)
+			}
+			batch = w.storage.NewWriteBatch()
+			c = 0
+		}
+		for {
+			select {
+			case kv := <-w.writeCh:
+				w.lastWriteAt = time.Now()
+				if c < w.config.WriteBatchSize {
+					batch.Set(kv.k, kv.v, byte(0))
+					c++
+				} else {
+					flush()
+				}
+			case <-time.After(w.config.WriteBatchTimeout):
+				//Flush an underpacked batch if there is no updates for a while
+				flush()
+			case <-w.flushWriteCh:
+				flush()
+			}
+		}
+	}(wal)
+	go func(w *Wal) {
+		c := 0
+		var err error
+		for {
+			err := db.Update(func(txn *badger.Txn) error {
+				for {
+					select {
+					case k := <-w.deleteCh:
+						if c < w.config.DeleteBatchSize {
+							err := txn.Delete(k)
+							msgDeletes.Inc()
+							if err != nil {
+								w.logger.Errorf("Could not delete record: %s", err)
+							}
+							c++
+						} else {
+							c = 0
+							return nil
+						}
+					case <-time.After(w.config.DeleteBatchTimeout):
+						// Exit transaction since there is no deletes for a while
+						return nil
+					case <-w.flushDeleteCh:
+						return nil
+					}
+				}
+				return err
+			})
+			if err != nil {
+				w.logger.Errorf("Error while trying to delete records from WAL: %s", err)
+			}
+		}
+	}(wal)
+	go func(w *Wal) {
+		for _ = range time.Tick(1 * time.Minute) {
+			if time.Since(w.lastWriteAt) > w.config.LogGCIdleTime {
+				w.logger.Infof("Triggering badgerdb value log garbage collection. ")
+				err := w.storage.RunValueLogGC(w.config.LogGCDiscardRatio)
+				if err != nil && err != badger.ErrNoRewrite {
+					w.logger.Errorf("Error running badger value log GC: %s", err)
+				}
+			}
+		}
+	}(wal)
 	return wal, nil
 }
 
+func (w *Wal) FlushWrites() error {
+	w.flushWriteCh <- struct{}{}
+	//send once again to make sure the batch has been written before calling Sync()
+	w.flushWriteCh <- struct{}{}
+	return w.storage.Sync()
+}
+
+func (w *Wal) FlushDeletes() error {
+	w.flushDeleteCh <- struct{}{}
+	//send once again to make sure the transaction has been commited before calling Sync()
+	w.flushDeleteCh <- struct{}{}
+	return w.storage.Sync()
+}
+
 func (w *Wal) Close() {
+	w.FlushWrites()
+	w.FlushDeletes()
 	w.storage.Close()
 }
 
-func (w *Wal) SetRecord(topic string, value []byte) error {
+func (w *Wal) Set(topic string, value []byte) error {
 	r := pb.Record{
 		Timestamp: ptypes.TimestampNow(),
 		Crc:       CrcSum(value),
@@ -87,37 +183,34 @@ func (w *Wal) SetRecord(topic string, value []byte) error {
 		return err
 	}
 	msgWrites.With(prometheus.Labels{"topic": topic}).Inc()
-	return w.Set(key, b)
-}
-
-func (w *Wal) Set(key, payload []byte) error {
-	// batch size is hardcoded at the moment, as we are considering switch over to some
-	// other DB, which may or may not change the interface.
-	// TODO: create leak-less interface for WAL
-	batchSize := 100
-	var err error
-
-	if w.batch.Len() < batchSize {
-		w.batch.Put(key, payload)
-	} else {
-		err = w.storage.Write(w.batch, nil)
-		w.batch.Reset()
-	}
+	w.writeCh <- KV{key, b}
 	return err
 }
 
 func (w *Wal) Get(key []byte) (*pb.Record, error) {
-	b, err := w.storage.Get(key, nil)
-	if err != nil {
-		if err == errors.ErrNotFound {
-			return nil, nil
+	var r *pb.Record
+	err := w.storage.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			w.logger.Errorf("Could not read record by key due to error %s", err)
+			return err
 		}
-		return nil, err
-	}
-
-	r, err := FromBytes(b)
+		err = item.Value(func(v []byte) error {
+			var err error
+			r, err = FromBytes(v)
+			if err != nil {
+				w.logger.Errorf("Could not read value from record due to error %s", err)
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
+		return r, err
 	}
 
 	msgReads.With(prometheus.Labels{"topic": r.Topic}).Inc()
@@ -125,58 +218,61 @@ func (w *Wal) Get(key []byte) (*pb.Record, error) {
 }
 
 func (w *Wal) Del(key []byte) error {
-	msgDeletes.Inc()
-	return w.storage.Delete(key, nil)
+	w.deleteCh <- key
+	return nil
 }
 
-func (w *Wal) CompactAll() error {
-	r := util.Range{
-		Start: nil,
-		Limit: nil,
-	}
-	return w.storage.CompactRange(r)
-}
-func (w *Wal) Messages() (cnt int64) {
-	iter := w.storage.NewIterator(nil, nil)
-	defer iter.Release()
-	for iter.Next() {
-		cnt++
+func (w *Wal) MessageCount() (cnt int64) {
+	err := w.storage.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			cnt++
+		}
+		return nil
+	})
+	if err != nil {
+		w.logger.Errorf("Could not count database keys")
 	}
 	return cnt
 }
 
-func (w *Wal) setWALMessages() {
-	cnt := w.Messages()
-	walMessages.Set(float64(cnt))
-}
-
-func (w *Wal) Iterator() iterator.Iterator {
-	return w.storage.NewIterator(nil, nil)
-}
-
 func (w *Wal) Iterate(limit int64) chan *pb.Record {
-	var cnt int64
 	c := make(chan *pb.Record)
-	iter := w.storage.NewIterator(nil, nil)
+	count := int64(0)
 
-	go func() {
-		for iter.Next() {
-			if limit != 0 && cnt <= limit {
-				key := iter.Key()
-				r, err := FromBytes(iter.Value())
+	go func(c chan *pb.Record) {
+		defer close(c)
+		err := w.storage.View(func(txn *badger.Txn) error {
+			opts := badger.DefaultIteratorOptions
+			opts.PrefetchSize = w.config.IteratorPrefetchSize
+			it := txn.NewIterator(opts)
+			defer it.Close()
+			for it.Rewind(); it.Valid() && (count < limit || limit == 0); it.Next() {
+				count++
+				item := it.Item()
+				err := item.Value(func(v []byte) error {
+					r, err := FromBytes(v)
+					if err != nil {
+						w.logger.Errorf("Could not read from record due to error %s", err)
+						return err
+					}
+					c <- r
+					msgReads.With(prometheus.Labels{"topic": r.Topic}).Inc()
+					return nil
+				})
 				if err != nil {
-					w.logger.Warnf("Could not read from record due to error %s", err)
-					w.Del(key)
-					continue
+					return err
 				}
-				c <- r
-			} else {
-				break
 			}
+			return nil
+		})
+		if err != nil {
+			w.logger.Errorf("Could not count get iterator")
 		}
-		iter.Release()
-		close(c)
-	}()
+	}(c)
 	return c
 }
 

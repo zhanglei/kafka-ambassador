@@ -36,9 +36,9 @@ func ProducerConfig(c *viper.Viper) *Config {
 	p.CBMaxRequests = uint32(c.GetInt32("producer.cb.requests"))
 	p.AlwaysWalTopics = c.GetStringSlice("producer.wal.always_topics")
 	p.DisableWalTopics = c.GetStringSlice("producer.wal.disable_topics")
-	p.WalDirectory = c.GetString("producer.wal.path")
 	p.OldProducerKillTimeout = c.GetDuration("producer.old_producer_kill_timeout")
 	p.GetMetadataTimeout = c.GetDuration("producer.get_metadata_timeout")
+
 	switch mode := c.GetString("producer.wal.mode"); mode {
 	case "fallback":
 		p.WalMode = Fallback

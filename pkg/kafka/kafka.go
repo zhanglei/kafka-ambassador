@@ -11,7 +11,6 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sony/gobreaker"
-	"go.uber.org/ratelimit"
 )
 
 type I interface {
@@ -63,7 +62,7 @@ type T struct {
 	producerWg       sync.WaitGroup
 	resendMutex      *sync.Mutex
 	cb               *gobreaker.TwoStepCircuitBreaker
-	rl               ratelimit.Limiter
+	rateLimiter      <-chan time.Time
 	inShutdown       bool
 	events           chan EventWrapper
 }
@@ -74,13 +73,13 @@ type Config struct {
 	WalMode                Mode
 	AlwaysWalTopics        []string
 	DisableWalTopics       []string
-	WalDirectory           string
 	ResendRateLimit        int
 	CBTimeout              time.Duration
 	CBInterval             time.Duration
 	CBMaxFailures          uint32
 	CBMaxRequests          uint32
 	GetMetadataTimeout     time.Duration
+	Wal                    wal.Config `yaml:"wal"` //it's needed to pass the wal config. All the options should be parsed same way using yaml.Unmarshal()
 }
 
 func (p *T) GetProducersCount() int {
@@ -218,12 +217,15 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 	libint, libstring := kafka.LibraryVersion()
 	libVersion.WithLabelValues(libstring).Set(float64(libint))
 	p.cb = gobreaker.NewTwoStepCircuitBreaker(cbSettings)
-	p.wal, err = wal.New(p.Config.WalDirectory, prom, p.Logger)
+	p.wal, err = wal.New(p.Config.Wal, prom, p.Logger)
 	if err != nil {
 		p.Logger.Errorf("Could not initialize WAL due to: %v", err)
 		return err
 	}
-	p.rl = ratelimit.New(p.Config.ResendRateLimit)
+
+	rlPeriod := time.Second / time.Duration(p.Config.ResendRateLimit)
+	p.Logger.Debugf("Period for rate limiter is: %s", rlPeriod)
+	p.rateLimiter = time.Tick(rlPeriod)
 	registerMetrics(prom)
 	p.Logger.Info("Starting up kafka events tracker")
 	go p.producerEventsHandler()
@@ -238,10 +240,9 @@ func (p *T) Init(kafkaParams *kafka.ConfigMap, prom *prometheus.Registry) error 
 }
 
 func (p *T) ReSend() {
-	ticker := time.NewTicker(p.Config.ResendPeriod)
 	var recordLimit int64
 
-	for range ticker.C {
+	for range time.Tick(p.Config.ResendPeriod) {
 		if p.inShutdown {
 			p.Logger.Warn("we are shutting down, no need to retry at the moment, exiting the loop")
 			return
@@ -256,54 +257,35 @@ func (p *T) ReSend() {
 			p.Logger.Infof("Running resend with limit %d, as CB is half open", recordLimit)
 		default:
 			recordLimit = 0
-			p.Logger.Infof("Running resend with limit %d, as CB is not open", recordLimit)
+			p.Logger.Infof("Running resend with limit %d, as CB is closed", recordLimit)
 		}
 
 		p.iterateLimit(recordLimit)
-
-		p.Logger.Info("Running compaction on the database")
-		p.wal.CompactAll()
 	}
 }
 
 func (p *T) iterateLimit(limit int64) {
-	var c int64
 	p.resendMutex.Lock()
 	defer p.resendMutex.Unlock()
 	now := time.Now().Unix()
-	iter := p.wal.Iterator()
-	defer iter.Release()
-	for iter.Next() {
+	for r := range p.wal.Iterate(limit) {
 		if p.inShutdown {
 			return
 		}
-		c++
-		if limit == 0 || c <= limit {
-			key := iter.Key()
-			r, err := wal.FromBytes(iter.Value())
-			if err != nil {
-				p.Logger.Warnf("Could not read from record due to error %s", err)
-				p.wal.Del(key)
-				continue
-			}
-			rtime, err := wal.GetTime(r)
-			if err != nil {
-				rtime = time.Now()
-			}
-			if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
-				if p.cb.State() != gobreaker.StateOpen {
-					p.rl.Take()
-					if !p.inShutdown {
-						p.produce(r.Topic, r.Payload, FromWAL)
-					}
-				} else {
-					p.Logger.Infof("We have got state change during retry, current state is %v, abort retry", p.cb.State())
-					return
+		rtime, err := wal.GetTime(r)
+		if err != nil {
+			rtime = time.Now()
+		}
+		if now-rtime.Unix() > int64(p.Config.ResendPeriod.Seconds()) {
+			if p.cb.State() != gobreaker.StateOpen {
+				<-p.rateLimiter
+				if !p.inShutdown {
+					p.produce(r.Topic, r.Payload, FromWAL)
 				}
+			} else {
+				p.Logger.Infof("We have got state change during retry, current state is %v, abort retry", p.cb.State())
+				return
 			}
-		} else {
-			// limit is bigger or equal to counter
-			return
 		}
 	}
 }
@@ -328,12 +310,12 @@ func (p *T) Send(topic string, message []byte) {
 		p.produce(topic, message, Direct)
 		if (p.Config.WalMode == Always && !p.isDisableWal(topic)) || p.isAlwaysWal(topic) {
 			p.Logger.Debugf("Storing message to topic: %s into WAL", topic)
-			p.wal.SetRecord(topic, message)
+			p.wal.Set(topic, message)
 		}
 		msgSent.With(prometheus.Labels{"topic": topic}).Inc()
 	} else {
 		p.Logger.Debugf("Storing message to topic: %s into WAL as CB is not ready", topic)
-		p.wal.SetRecord(topic, message)
+		p.wal.Set(topic, message)
 	}
 }
 
@@ -374,7 +356,7 @@ func (p *T) producerEventsHandler() {
 				p.Logger.Debugf("could not send message to kafka due to: %s", m.TopicPartition.Error.Error())
 				// we store messages which can be retried only
 				if canRetry(m.TopicPartition.Error) {
-					p.wal.SetRecord(*m.TopicPartition.Topic, m.Value)
+					p.wal.Set(*m.TopicPartition.Topic, m.Value)
 				} else {
 					// we could put the message into some malformed topic or similar
 					crc := wal.Uint32ToBytes(wal.CrcSum(m.Value))

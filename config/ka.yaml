@@ -9,10 +9,10 @@ server:
 producer:
   resend:
     period: 1m
-    rate_limit: 100
+    rate_limit: 10000
   wal:
     mode: "fallback"
-    path: /tmp/wal
+    path: /data/wal
     skip_topics:
     - test1
 kafka:
@@ -22,7 +22,7 @@ kafka:
     # possible configuration parameters are:
     # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
     "compression.codec": "gzip"
-    "batch.num.messages": 100000
+    "batch.num.messages": 10000
     "max.in.flight.requests.per.connection": 20
     "message.timeout.ms": 60000
     "socket.timeout.ms": 10000

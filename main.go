@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,7 +15,14 @@ import (
 	"github.com/anchorfree/kafka-ambassador/pkg/servers"
 	ckg "github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/prometheus/client_golang/prometheus"
+	"gopkg.in/yaml.v2"
 )
+
+//it's needed to pass wal config.
+//We need to refactor whole config chain to be parsed the same way - using yaml.Unmarshal
+type Config struct {
+	Producer kafka.Config `yaml:"producer"`
+}
 
 var (
 	defaults = map[string]interface{}{
@@ -72,9 +80,19 @@ func main() {
 	if err != nil {
 		return
 	}
+	//separate config read for wal. This is to be refactored
+	data, err := ioutil.ReadFile(configPathName)
+	if err != nil {
+		panic("could not read config file")
+	}
+	var anotherConfig Config
+	if err := yaml.Unmarshal(data, &anotherConfig); err != nil {
+		s.Logger.Fatalf("error: %v", err)
+	}
 	producer := &kafka.T{}
 	producer.Logger = s.Logger
 	producer.Config = kafka.ProducerConfig(s.Config)
+	producer.Config.Wal = anotherConfig.Producer.Wal
 	err = producer.Init(&kafkaParams, s.Prometheus)
 	if err != nil {
 		s.Logger.Fatal("Could not initialize producer")

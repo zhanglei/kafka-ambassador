@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/anchorfree/kafka-ambassador/pkg/config"
 	"github.com/anchorfree/kafka-ambassador/pkg/testproxy"
+	"github.com/anchorfree/kafka-ambassador/pkg/wal"
 	"github.com/optiopay/kafka/kafkatest"
 	"github.com/optiopay/kafka/proto"
 	"github.com/spf13/viper"
@@ -193,10 +195,11 @@ func TestLifeCycle(t *testing.T) {
 		configMap[k] = v
 	}
 
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:    "",
+			Wal:             wal.Config{Path: dir},
 			ResendRateLimit: 10,
 			ResendPeriod:    0,
 			CBTimeout:       2 * time.Second,
@@ -208,11 +211,11 @@ func TestLifeCycle(t *testing.T) {
 	fmt.Println("Going to sleep for a while to let producer init")
 	time.Sleep(time.Second * 5)
 
-	assert.Equal(int64(0), p.wal.Messages(), "WAL should be empty")
+	assert.Equal(int64(0), p.wal.MessageCount(), "WAL should be empty")
 	assert.Equal(gobreaker.StateClosed, p.cb.State())
 	p.Send(testTopic, []byte("test message 1"))
 	p.Send(testTopic, []byte("test message 2"))
-	assert.Equal(int64(0), p.wal.Messages(), "WAL still should be empty")
+	assert.Equal(int64(0), p.wal.MessageCount(), "WAL still should be empty")
 
 	fmt.Println("Sleep to flush librdkafka queue")
 	time.Sleep(time.Second * 5)
@@ -228,7 +231,7 @@ func TestLifeCycle(t *testing.T) {
 		fmt.Printf("Sending test message: %s", m)
 		p.Send(testTopic, m)
 	}
-	assert.True(p.wal.Messages() >= int64(p.Config.CBMaxRequests), "Messages have to hit wal already")
+	assert.True(p.wal.MessageCount() >= int64(p.Config.CBMaxRequests), "Messages have to hit wal already")
 
 	fmt.Println("Reopen proxy")
 	proxy.Run()
@@ -239,7 +242,7 @@ func TestLifeCycle(t *testing.T) {
 	assert.Equal(gobreaker.StateClosed, p.cb.State(), "Circuit breaker should be closed (green light)")
 	fmt.Println("Send extra message 3")
 	p.Send(testTopic, []byte("test message 3"))
-	assert.True(p.wal.Messages() >= int64(p.Config.CBMaxRequests))
+	assert.True(p.wal.MessageCount() >= int64(p.Config.CBMaxRequests))
 
 	p.GetProducer().Producer.Close()
 	server.Close()
@@ -396,10 +399,11 @@ func TestTLS(t *testing.T) {
 		configMap[k] = v
 	}
 
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:           "",
+			Wal:                    wal.Config{Path: dir},
 			ResendRateLimit:        10,
 			ResendPeriod:           0,
 			CBTimeout:              2 * time.Second,
@@ -491,10 +495,11 @@ func TestAddingActiveProducer(t *testing.T) {
 	}
 
 	oldProducerKillTimeout := 3 * time.Second
+	dir := helperMkWalDir(t)
 	p := &T{
 		Logger: logger.Sugar(),
 		Config: &Config{
-			WalDirectory:           "",
+			Wal:                    wal.Config{Path: dir},
 			ResendRateLimit:        10,
 			ResendPeriod:           0,
 			CBTimeout:              2 * time.Second,
@@ -538,9 +543,12 @@ func TestListTopics(t *testing.T) {
 	for k, v := range flatten {
 		configMap[k] = v
 	}
+	dir := helperMkWalDir(t)
+	conf := ProducerConfig(viper.New())
+	conf.Wal = wal.Config{Path: dir}
 	p := &T{
 		Logger: logger.Sugar(),
-		Config: ProducerConfig(viper.New()), //default config
+		Config: conf, //default config
 	}
 	p.Init(&configMap, prometheus.NewRegistry())
 	topics, err := p.ListTopics()
@@ -570,4 +578,12 @@ func helperGetOutput(timeout time.Duration) []byte {
 		return nil
 	}
 	return out
+}
+
+func helperMkWalDir(t *testing.T) string {
+	t.Helper()
+	dir := fmt.Sprintf("/tmp/wal-test-%d", time.Now().UnixNano())
+	err := os.MkdirAll(dir, 0777)
+	assert.NoError(t, err)
+	return dir
 }
