@@ -140,7 +140,7 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 			if time.Since(w.lastWriteAt) > w.config.LogGCIdleTime {
 				w.logger.Infof("Triggering badgerdb value log garbage collection. ")
 				err := w.storage.RunValueLogGC(w.config.LogGCDiscardRatio)
-				if err != nil && err != wal.ErrNoRewrite {
+				if err != nil && err != badger.ErrNoRewrite {
 					w.logger.Errorf("Error running badger value log GC: %s", err)
 				}
 			}
