@@ -57,14 +57,14 @@ func populateRDKafkaMetrics(stats string) error {
 			"producer_id": producerID,
 			"broker":      brokerID,
 			"window":      "",
-		}).Set(B2f(string(values.GetStringBytes("state")) == "UP"))
+		}).Set(B2f(string(v.GetStringBytes("state")) == "UP"))
 		for _, m := range rdBrokerMetrics {
 			metricRDKafkaBroker.With(prometheus.Labels{
 				"metric":      m,
 				"producer_id": producerID,
 				"broker":      brokerID,
 				"window":      "",
-			}).Set(values.GetFloat64(m))
+			}).Set(v.GetFloat64(m))
 		}
 		for _, m := range rdBrokerHistoMetrics {
 			for _, window := range rdHistoMetrics {
