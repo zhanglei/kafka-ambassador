@@ -202,10 +202,10 @@ rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rtt",producer_id
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rtt",producer_id="rdkafka#producer-1",window="p95"} 30
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rtt",producer_id="rdkafka#producer-1",window="p99"} 40
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rx",producer_id="rdkafka#producer-1",window=""} 423
-rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rx_bytes",producer_id="rdkafka#producer-1",window=""} 0
+rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="rxbytes",producer_id="rdkafka#producer-1",window=""} 28426
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="state_up",producer_id="rdkafka#producer-1",window=""} 1
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="tx",producer_id="rdkafka#producer-1",window=""} 402
-rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="tx_bytes",producer_id="rdkafka#producer-1",window=""} 0
+rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="txbytes",producer_id="rdkafka#producer-1",window=""} 68802
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="waitresp_cnt",producer_id="rdkafka#producer-1",window=""} 3
 rdkafka_broker{broker="kafka3.data.afdevops.com:9092/3",metric="waitresp_msg_cnt",producer_id="rdkafka#producer-1",window=""} 4
 `

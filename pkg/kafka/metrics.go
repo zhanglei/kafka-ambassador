@@ -9,7 +9,7 @@ import (
 var (
 	rdHistoMetrics       = []string{"min", "max", "avg", "p50", "p95", "p99"}
 	rdGlobalMetrics      = []string{"replyq", "msg_cnt", "msg_size", "tx", "tx_bytes", "rx", "rx_bytes", "txmsgs", "txmsgs_bytes", "rxmsgs", "rxmsgs_bytes"}
-	rdBrokerMetrics      = []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "tx_bytes", "req_timeouts", "rx", "rx_bytes", "connects", "disconnects"}
+	rdBrokerMetrics      = []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "txbytes", "req_timeouts", "rx", "rxbytes", "connects", "disconnects"}
 	rdBrokerHistoMetrics = []string{"int_latency", "outbuf_latency", "rtt"}
 	rdTopicMetrics       = []string{"batchsize", "batchcnt"}
 	rdPartitionMetrics   = []string{"msgq_cnt", "bsgq_bytes", "xmit_msgq_cnt", "msgs_inflight"}
