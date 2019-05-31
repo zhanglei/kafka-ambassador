@@ -236,8 +236,8 @@ rdkafka_topic{metric="batchsize",producer_id="rdkafka#producer-1",topic="test",w
 
 	expect = `# HELP rdkafka_partition librdkafka internal partition metrics
 # TYPE rdkafka_partition gauge
-rdkafka_partition{metric="bsgq_bytes",partition="0",producer_id="rdkafka#producer-1",topic="test"} 0
-rdkafka_partition{metric="bsgq_bytes",partition="1",producer_id="rdkafka#producer-1",topic="test"} 0
+rdkafka_partition{metric="msgq_bytes",partition="0",producer_id="rdkafka#producer-1",topic="test"} 0
+rdkafka_partition{metric="msgq_bytes",partition="1",producer_id="rdkafka#producer-1",topic="test"} 5
 rdkafka_partition{metric="msgq_cnt",partition="0",producer_id="rdkafka#producer-1",topic="test"} 0
 rdkafka_partition{metric="msgq_cnt",partition="1",producer_id="rdkafka#producer-1",topic="test"} 2
 rdkafka_partition{metric="msgs_inflight",partition="0",producer_id="rdkafka#producer-1",topic="test"} 5

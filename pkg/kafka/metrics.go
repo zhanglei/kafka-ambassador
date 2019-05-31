@@ -12,7 +12,7 @@ var (
 	rdBrokerMetrics      = []string{"outbuf_cnt", "outbuf_msg_cnt", "waitresp_cnt", "waitresp_msg_cnt", "tx", "txbytes", "req_timeouts", "rx", "rxbytes", "connects", "disconnects"}
 	rdBrokerHistoMetrics = []string{"int_latency", "outbuf_latency", "rtt"}
 	rdTopicMetrics       = []string{"batchsize", "batchcnt"}
-	rdPartitionMetrics   = []string{"msgq_cnt", "bsgq_bytes", "xmit_msgq_cnt", "msgs_inflight"}
+	rdPartitionMetrics   = []string{"msgq_cnt", "msgq_bytes", "xmit_msgq_cnt", "msgs_inflight"}
 )
 
 type MetricVec interface {
