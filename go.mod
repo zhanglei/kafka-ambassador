@@ -1,6 +1,6 @@
 module github.com/anchorfree/kafka-ambassador
 
-go 1.13
+go 1.12
 
 require (
 	github.com/anchorfree/data-go v0.0.0-20190515143140-edabe141ac15
