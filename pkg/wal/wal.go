@@ -7,7 +7,7 @@ import (
 
 	"github.com/anchorfree/kafka-ambassador/pkg/logger"
 	"github.com/anchorfree/kafka-ambassador/pkg/wal/pb"
-	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/v2"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/imdario/mergo"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,6 +30,7 @@ type KV struct {
 type Wal struct {
 	logger        logger.Logger
 	storage       *badger.DB
+	dbOpts        badger.Options
 	stopCh        chan bool
 	writeCh       chan KV
 	deleteCh      chan []byte
@@ -45,15 +46,23 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 		logger.Panic("Could not merge config: %s", err)
 	}
 	logger.Debugf("wal config loaded: %+v", conf)
-	opts := badger.DefaultOptions
+
+	// Setup BadgerDB options
 	if conf.Path != "" {
 		ok, err := isWritable(conf.Path)
 		if !ok {
 			logger.Fatalf("The WAL folder does not work due to: %s", err)
 		}
-		opts.Dir = conf.Path
-		opts.ValueDir = conf.Path
 	}
+
+	var opts badger.Options
+	if conf.InMemory {
+		logger.Info("Running WAL with InMemory mode, everything is stored in memory")
+		opts = badger.DefaultOptions("").WithInMemory(true)
+	} else {
+		opts = badger.DefaultOptions(conf.Path)
+	}
+
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
@@ -61,6 +70,7 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 
 	wal := &Wal{
 		storage:       db,
+		dbOpts:        opts,
 		config:        conf,
 		logger:        logger,
 		stopCh:        make(chan bool),
@@ -89,7 +99,9 @@ func New(conf Config, prom *prometheus.Registry, logger logger.Logger) (*Wal, er
 			case kv := <-w.writeCh:
 				w.lastWriteAt = time.Now()
 				if c < w.config.WriteBatchSize {
-					batch.Set(kv.k, kv.v, byte(0))
+					// WriteBatch API has changed:
+					// https://github.com/dgraph-io/badger/commit/cd5884e0e8ebe92de4afa8f543a8120b40551e5f
+					batch.Set(kv.k, kv.v)
 					c++
 				} else {
 					flush()

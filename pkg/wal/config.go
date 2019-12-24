@@ -6,6 +6,7 @@ import (
 
 type Config struct {
 	Path                 string        `yaml:"path"`
+	InMemory             bool          `yaml:"in_memory"`
 	CollectMetricsPeriod time.Duration `yaml:"collect_metrics_period"`
 	DeleteBatchTimeout   time.Duration `yaml:"delete_batch_timeout"`
 	WriteBatchTimeout    time.Duration `yaml:"write_batch_timeout"`

@@ -91,6 +91,36 @@ func TestInAndOut(t *testing.T) {
 
 }
 
+func TestInMemoryTrue(t *testing.T) {
+	dir := helperMkWalDir(t)
+	defer os.RemoveAll(dir)
+
+	registry := prometheus.NewRegistry()
+	conf := Config{
+		Path:     dir,
+		InMemory: true,
+	}
+
+	w, err := New(conf, registry, zap.NewExample().Sugar())
+	assert.NoError(t, err)
+	assert.True(t, w.dbOpts.InMemory, "WAL DB initited with InMemory=true")
+}
+
+func TestInMemoryFalse(t *testing.T) {
+	dir := helperMkWalDir(t)
+	defer os.RemoveAll(dir)
+
+	registry := prometheus.NewRegistry()
+	conf := Config{
+		Path:     dir,
+		InMemory: false,
+	}
+
+	w, err := New(conf, registry, zap.NewExample().Sugar())
+	assert.NoError(t, err)
+	assert.False(t, w.dbOpts.InMemory, "WAL DB initited with InMemory=false")
+}
+
 func helperMkWalDir(t *testing.T) string {
 	t.Helper()
 	dir := fmt.Sprintf("/tmp/wal-test-%d", time.Now().UnixNano())
