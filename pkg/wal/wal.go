@@ -14,7 +14,7 @@ import (
 )
 
 type I interface {
-	Close()
+	Close() error
 	Del([]byte) error
 	Get([]byte) (*pb.Record, error)
 	Iterate(int64) chan *pb.Record
@@ -163,10 +163,12 @@ func (w *Wal) FlushDeletes() error {
 	return w.storage.Sync()
 }
 
-func (w *Wal) Close() {
+func (w *Wal) Close() error {
 	w.FlushWrites()
 	w.FlushDeletes()
-	w.storage.Close()
+
+	// Close BadgerDB
+	return w.storage.Close()
 }
 
 func (w *Wal) Set(topic string, value []byte) error {

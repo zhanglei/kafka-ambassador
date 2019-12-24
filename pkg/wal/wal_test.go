@@ -64,7 +64,9 @@ func TestInAndOut(t *testing.T) {
 	assert.Subset(t, messages, looped)
 	//Re-open database
 	w.storage.Sync()
-	w.Close()
+	err = w.Close()
+	assert.NoError(t, err)
+
 	registry = prometheus.NewRegistry()
 	w, err = New(conf, registry, zap.NewExample().Sugar())
 	//Try to pull all records with Iterate first
