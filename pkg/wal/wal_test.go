@@ -64,7 +64,9 @@ func TestInAndOut(t *testing.T) {
 	assert.Subset(t, messages, looped)
 	//Re-open database
 	w.storage.Sync()
-	w.Close()
+	err = w.Close()
+	assert.NoError(t, err)
+
 	registry = prometheus.NewRegistry()
 	w, err = New(conf, registry, zap.NewExample().Sugar())
 	//Try to pull all records with Iterate first
@@ -87,6 +89,36 @@ func TestInAndOut(t *testing.T) {
 	assert.NoError(t, w.FlushDeletes())
 	assert.Equal(t, int64(0), w.MessageCount())
 
+}
+
+func TestInMemoryTrue(t *testing.T) {
+	dir := helperMkWalDir(t)
+	defer os.RemoveAll(dir)
+
+	registry := prometheus.NewRegistry()
+	conf := Config{
+		Path:     dir,
+		InMemory: true,
+	}
+
+	w, err := New(conf, registry, zap.NewExample().Sugar())
+	assert.NoError(t, err)
+	assert.True(t, w.dbOpts.InMemory, "WAL DB initited with InMemory=true")
+}
+
+func TestInMemoryFalse(t *testing.T) {
+	dir := helperMkWalDir(t)
+	defer os.RemoveAll(dir)
+
+	registry := prometheus.NewRegistry()
+	conf := Config{
+		Path:     dir,
+		InMemory: false,
+	}
+
+	w, err := New(conf, registry, zap.NewExample().Sugar())
+	assert.NoError(t, err)
+	assert.False(t, w.dbOpts.InMemory, "WAL DB initited with InMemory=false")
 }
 
 func helperMkWalDir(t *testing.T) string {

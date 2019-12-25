@@ -46,6 +46,7 @@ producer:
     rate_limit: 10000
   wal:
     mode: "fallback"
+    in_memory: false
     path: /data/wal
     always_topics:
       - always_wal
@@ -80,6 +81,7 @@ kafka:
 | producer.wal.disable_topics         | []                    | Topics to skip WAL even for fallback. e.g. you rely on message order.                                                                    |
 | producer.wal.path                   | ""                    | Path to store WAL files.                                                                                                                 |
 | producer.wal.mode                   | fallback              | Possible options: fallback (write to buffer only in case of failure), always (write to wal for all messages), disable (don't use buffer) |
+| producer.wal.in_memory              | false                 | Possible options: false (write WAL data to disk), true (WAL data is stored in memory, in case of crash all data will be lost) |
 | producer.old_producer_kill_timeout  | 10m                   | Time before old producer gets hard shutdown no mater there are still messages in queue                                                   |
 | kafka.brokers                       | []                    |                                                                                                                                          |
 | kafka.*                             | depends on librdkafka | https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md                                                                      |
