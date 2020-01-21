@@ -1,0 +1,11 @@
+# Assuming helm3 points to helm_v3 binary.
+#
+# Usage:
+#  helmfile -b helm3 -f helmfile_gpr.yaml lint
+#  helmfile -b helm3 -f helmfile_gpr.yaml diff
+#  helmfile -b helm3 -f helmfile_gpr.yaml apply
+releases:
+- name: kafka-ambassador
+  namespace: gpr
+  chart: ./charts/kafka-ambassador
+  missingFileHandler: Error
